@@ -1,4 +1,4 @@
-import { endpoints } from '@/libs/extension'
+import { storage } from '@/libs/storage'
 
 export type CacheItem = {
   value: unknown
@@ -27,13 +27,9 @@ export function createInMemoryProvider(): CacheProvider {
 export function createStorageProvider(namespace: string): CacheProvider {
   // Ensure that we don't collide with other keys in the storage
   const ns = `___:::${namespace}:::___`
-  const storage = endpoints?.storage.local
   return {
-    get: async (key: string) => {
-      const value = await storage.get(ns + key)
-      if (ns + key in value) return value[ns + key]
-    },
-    set: (key: string, value: unknown) => storage.set({ [ns + key]: { value, createdAt: Date.now() } }),
-    delete: (key: string) => storage.remove(ns + key),
+    get: (key: string) => storage.get<CacheItem>(ns + key),
+    set: (key: string, value: unknown) => storage.set(ns + key, { value, createdAt: Date.now() }),
+    delete: (key: string) => storage.delete(ns + key),
   }
 }

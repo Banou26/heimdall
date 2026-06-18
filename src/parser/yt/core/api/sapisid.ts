@@ -1,13 +1,12 @@
-import { endpoints } from '@libs/extension'
+import { cookies } from '@libs/extension'
 
 export const fetchSAPISID = () =>
-  endpoints?.cookies
+  cookies
     .get({
       url: 'https://www.youtube.com',
       name: 'SAPISID',
     })
     .then((cookie) => {
-      console.log(cookie)
       if (!cookie) throw Error('No SAPISID cookie found')
       return hashSAPISID(cookie.value)
     })

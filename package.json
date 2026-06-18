@@ -16,9 +16,9 @@
 	},
 	"dependencies": {
 		"@emotion/is-prop-valid": "^1.2.2",
+		"@fkn/lib": "file:../fkn/web/lib",
 		"@mantine/core": "^7.10.0",
 		"@mantine/hooks": "^7.10.0",
-		"@saghen/hermes": "2.0.0-alpha.5",
 		"@tabler/icons-react": "^3.5.0",
 		"date-fns": "^3.6.0",
 		"jotai": "^2.8.1",
@@ -42,6 +42,7 @@
 		"postcss-simple-vars": "^7.0.1",
 		"typescript": "^5.4.5",
 		"vite": "^5.2.11",
+		"vite-plugin-node-polyfills": "^0.22.0",
 		"vite-tsconfig-paths": "^4.3.2"
 	},
 	"lint-staged": {

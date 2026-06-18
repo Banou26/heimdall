@@ -18,7 +18,6 @@
 			"@/*": ["./*"],
 			"@constants": ["./constants/index.ts"],
 			"@components/*": ["./components/*"],
-			"@extension/*": ["../extension/*"],
 			"@libs/*": ["./libs/*"],
 			"@std": ["./parser/std/index.ts"],
 			"@std/*": ["./parser/std/*"],
@@ -26,5 +25,5 @@
 			"@yt/*": ["./parser/yt/*"]
 		}
 	},
-	"include": ["src/vite-env.d.ts", "src", "extension/src"]
+	"include": ["src/vite-env.d.ts", "src"]
 }
