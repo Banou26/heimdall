@@ -9,7 +9,7 @@ import type { RichItem } from '@yt/components/item'
 import type { Video } from './processors/regular'
 import { type Renderer, isCommand } from '@yt/core/internals'
 import { fetchProxy } from '@libs/extension'
-import { getSigTimestamp } from './processors/player/decoders/signature'
+import { memoizeAsync } from '@libs/cache'
 
 export const fetchRecommended = (): Promise<RecommendedResponse> => {
   console.log('fetchRecommended')
@@ -23,14 +23,38 @@ export const fetchRecommendedContinuation = (
 ): Promise<AppendContinuationItemsResponse<RichItem<Video | Renderer<'radio'>> | ContinuationItem>> =>
   fetchYt(Endpoint.Browse, { continuation })
 
-export const fetchPlayer = async (videoId: string) =>
-  fetchYt<PlayerResponse>(Endpoint.Player, {
-    videoId,
-    // required for signature decoding, see processors/player/decoders/signature.ts
-    playbackContext: {
-      contentPlaybackContext: { signatureTimestamp: await getSigTimestamp() },
-    },
-  })
+// The WEB client no longer returns playable stream URLs (SABR / proof-of-origin
+// gating). Like yt-dlp, we ask the IOS innertube client instead: it returns
+// direct, ready-to-play URLs with separate audio/video tracks and no signature
+// or `n` param to decode. Sent cookieless (no login needed for playback) so it
+// doesn't carry the user's WEB session, which the IOS client would reject.
+const IOS_PLAYER_KEY = 'AIzaSyB-63vPrdThhKuerbB2N_l7Kwwcxj6yUAc'
+const IOS_CLIENT_CONTEXT = {
+  client: {
+    clientName: 'IOS',
+    clientVersion: '20.10.4',
+    deviceMake: 'Apple',
+    deviceModel: 'iPhone16,2',
+    osName: 'iPhone',
+    osVersion: '18.3.2.22D82',
+    hl: 'en',
+    gl: 'US',
+  },
+}
+
+export const fetchPlayer = memoizeAsync(
+  async (videoId: string): Promise<PlayerResponse> => {
+    const res = await fetchProxy(`https://www.youtube.com/youtubei/v1/player?key=${IOS_PLAYER_KEY}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      credentials: 'omit',
+      body: JSON.stringify({ videoId, context: IOS_CLIENT_CONTEXT, contentCheckOk: true, racyCheckOk: true }),
+    })
+    if (!res.ok) throw Error(`YT player request failed with status code ${res.status}`)
+    return res.json()
+  },
+  { argsToKey: (videoId) => videoId },
+)
 export const fetchVideo = (videoId: string) => fetchYt<VideoResponse>(Endpoint.Next, { videoId })
 export const fetchCompactVideoContinuation = fetchEndpointContinuation(
   Endpoint.Next,

@@ -121,7 +121,8 @@ export async function getVideo(videoId: string): Promise<std.Video> {
 export async function getPlayer(videoId: string) {
   const [player, segments] = await Promise.all([
     fetchPlayer(videoId).then(processPlayer),
-    fetchSponsorBlock(videoId),
+    // SponsorBlock is a non-essential third party; never let it block playback.
+    fetchSponsorBlock(videoId).catch(() => []),
   ])
   return { ...player, segments }
 }

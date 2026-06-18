@@ -35,10 +35,10 @@ export async function processPlayer({
 
   const sources = (
     await Promise.all([
-      ...streamingData.formats
+      ...(streamingData.formats ?? [])
         .filter(hasPlayableUrl)
         .map((format) => buildSource(() => processFormat(format))),
-      ...streamingData.adaptiveFormats
+      ...(streamingData.adaptiveFormats ?? [])
         .filter(hasPlayableUrl)
         .map((format) => buildSource(() => processAdaptiveFormat(format))),
     ])
@@ -52,7 +52,7 @@ export async function processPlayer({
     staticThumbnail: videoDetails.thumbnail.thumbnails,
     sources,
     closedCaptions: captions !== undefined ? processCaptions(captions) : [],
-    viewedLength: playerConfig.playbackStartConfig?.startSeconds ?? 0,
+    viewedLength: playerConfig?.playbackStartConfig?.startSeconds ?? 0,
     length: Number(videoDetails.lengthSeconds),
   }
 }
