@@ -32,7 +32,7 @@ const installFetchProxy = () => {
       headers: forgeOrigin(new Headers(init?.headers ?? request?.headers)),
       body: init?.body ?? undefined,
       credentials: 'omit',
-      signal: init?.signal ?? request?.signal ?? undefined,
+      // No signal on purpose - aborting a proxyFetch wedges the extension relay.
     })
   }
 }
@@ -45,7 +45,7 @@ const installXhrProxy = () => {
     #url = ''
     #method = 'GET'
     #headers: [string, string][] = []
-    #aborter?: AbortController
+    #aborted = false
     #responseHeaders?: Headers
 
     open(method: string, url: string | URL, ...rest: unknown[]) {
@@ -63,15 +63,22 @@ const installXhrProxy = () => {
 
     send(body?: Document | XMLHttpRequestBodyInit | null) {
       if (!this.#proxy) return super.send(body)
-      this.#aborter = new AbortController()
+      // Deliberately NOT forwarding an AbortSignal: aborting an in-flight
+      // proxyFetch wedges the extension's osra relay (and every later request).
+      // dash.js aborts on every seek, so instead we let the request finish in
+      // the background and just discard its result when aborted.
       fetchProxy(this.#url, {
         method: this.#method,
         headers: forgeOrigin(new Headers(this.#headers)),
         credentials: 'omit',
-        signal: this.#aborter.signal,
       })
         .then(async (response) => {
+          // Always fully drain the body, even when aborted: leaving an osra
+          // response stream unconsumed (or cancelling it) wedges the relay for
+          // every later request, but a fully-read stream frees cleanly. dash.js
+          // aborts on every seek, so we read then discard the result.
           const buffer = await response.arrayBuffer()
+          if (this.#aborted) return
           this.#responseHeaders = response.headers
           const shadow = (key: string, value: unknown) =>
             Object.defineProperty(this, key, { configurable: true, get: () => value })
@@ -97,14 +104,22 @@ const installXhrProxy = () => {
           this.dispatchEvent(new ProgressEvent('loadend'))
         })
         .catch(() => {
-          this.dispatchEvent(new ProgressEvent(this.#aborter?.signal.aborted ? 'abort' : 'error'))
+          // abort() already fired abort/loadend synchronously; don't double-fire.
+          if (this.#aborted) return
+          this.dispatchEvent(new ProgressEvent('error'))
           this.dispatchEvent(new ProgressEvent('loadend'))
         })
     }
 
     abort() {
-      if (this.#proxy) this.#aborter?.abort()
-      else super.abort()
+      if (!this.#proxy) return super.abort()
+      this.#aborted = true
+      // Native abort() ends the request synchronously and fires these events;
+      // dash.js waits for them before issuing the next (e.g. post-seek) request.
+      Object.defineProperty(this, 'readyState', { configurable: true, get: () => 4 })
+      this.dispatchEvent(new Event('readystatechange'))
+      this.dispatchEvent(new ProgressEvent('abort'))
+      this.dispatchEvent(new ProgressEvent('loadend'))
     }
 
     getAllResponseHeaders() {
