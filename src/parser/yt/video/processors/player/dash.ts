@@ -57,9 +57,8 @@ const representation = (
 
 type PlayableFormat = AdaptiveFormat & { url: string; initRange: ByteRange; indexRange: ByteRange }
 
-const adaptationSet = (formats: PlayableFormat[], contentType: 'video' | 'audio') => {
-  if (!formats.length) return ''
-  const { mimeType } = splitMime(formats[0].mimeType)
+const adaptationSet = (mimeType: string, formats: PlayableFormat[]) => {
+  const contentType = mimeType.startsWith('video') ? 'video' : 'audio'
   const lang = contentType === 'audio' ? ' lang="en"' : ''
   return (
     `<AdaptationSet contentType="${contentType}" mimeType="${mimeType}" subsegmentAlignment="true"${lang}>` +
@@ -74,15 +73,20 @@ export const buildDashManifest = (
 ): string | undefined => {
   const formats = (streamingData?.adaptiveFormats ?? []).filter(isPlayable)
   if (!formats.length) return undefined
-  const videos = formats.filter((format) => format.mimeType.startsWith('video'))
-  const audios = formats.filter((format) => format.mimeType.startsWith('audio'))
+  // Group by exact mimeType: a codec must match its container, or dash.js drops
+  // the representation (e.g. an avc1 codec inside a video/webm set is invalid).
+  const groups = new Map<string, PlayableFormat[]>()
+  for (const format of formats) {
+    const { mimeType } = splitMime(format.mimeType)
+    const list = groups.get(mimeType)
+    if (list) list.push(format)
+    else groups.set(mimeType, [format])
+  }
+  const adaptationSets = [...groups].map(([mimeType, reps]) => adaptationSet(mimeType, reps)).join('')
   return (
     '<?xml version="1.0" encoding="UTF-8"?>' +
     '<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011" ' +
     `type="static" mediaPresentationDuration="${isoDuration(durationSeconds)}" minBufferTime="PT1.5S">` +
-    '<Period>' +
-    adaptationSet(videos, 'video') +
-    adaptationSet(audios, 'audio') +
-    '</Period></MPD>'
+    `<Period>${adaptationSets}</Period></MPD>`
   )
 }
