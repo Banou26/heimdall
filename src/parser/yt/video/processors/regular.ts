@@ -35,7 +35,7 @@ export function processVideo({ videoRenderer: video }: Video): std.Video {
 
     title: combineSomeText(video.title),
     shortDescription: video.descriptionSnippet && combineSomeText(video.descriptionSnippet),
-    viewCount: extractNumber(combineSomeText(video.viewCountText)),
+    viewCount: video.viewCountText ? extractNumber(combineSomeText(video.viewCountText)) : undefined,
 
     author: video.ownerText && {
       name: combineSomeText(video.ownerText),

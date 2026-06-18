@@ -4,10 +4,21 @@ import { processVideo } from '@yt/video/processors/regular'
 import { fetchSearchIterator, fetchSearchSuggestions } from './api'
 import type { SearchItem } from './types'
 
-const searchItemToResourceType = (item: SearchItem) =>
-  'videoRenderer' in item ? std.ResourceType.Video : std.ResourceType.Channel
-const processSearchItem = (item: SearchItem) =>
-  'videoRenderer' in item ? processVideo(item) : processChannel(item)
+type ClassifiedItem = { type: std.ResourceType; resource: std.Resource<std.ResourceType> }
+
+// Search results mix videos and channels with ads, promoted results and
+// shelves (adSlotRenderer, searchPyvRenderer, gridShelfViewModel, …). Only
+// surface the renderers we understand and never throw on the rest, so one odd
+// item can't take down the whole list (and trigger an infinite retry storm).
+const classifySearchItem = (item: SearchItem): ClassifiedItem | undefined => {
+  try {
+    if ('videoRenderer' in item) return { type: std.ResourceType.Video, resource: processVideo(item) }
+    if ('channelRenderer' in item) return { type: std.ResourceType.Channel, resource: processChannel(item) }
+  } catch (error) {
+    console.warn('Failed to process search item', error)
+  }
+  return undefined
+}
 
 // TODO: Refactor
 export const listSearch = <
@@ -34,8 +45,12 @@ export const listSearch = <
 
       // TODO: Playlists?
       yield items
-        .filter((item) => resourceTypes.includes(searchItemToResourceType(item) as Type))
-        .map(processSearchItem) as std.Resource<Type>[]
+        .map(classifySearchItem)
+        .filter(
+          (entry): entry is ClassifiedItem =>
+            entry !== undefined && resourceTypes.includes(entry.type as Type),
+        )
+        .map((entry) => entry.resource) as std.Resource<Type>[]
     }
   }
 
