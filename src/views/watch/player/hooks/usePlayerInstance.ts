@@ -158,14 +158,18 @@ export const createPlayerInstance = (
   // Source
   // todo: maintain position
   // todo: handle video with audio
-  video.src = source.get().video.url
-  audio.src = source.get().audio.url
-  video.style.setProperty('aspect-ratio', `${source.get().video.width} / ${source.get().video.height}`)
-  source.onChange((source) => {
-    video.src = source.video.url
-    audio.src = source.audio.url
-    video.style.setProperty('aspect-ratio', `${source.video.width} / ${source.video.height}`)
-  })
+  // YouTube may serve no usable video/audio streams (SABR / proof-of-origin
+  // gating), in which case the codec pickers return nothing; guard so the rest
+  // of the watch page still renders instead of crashing on a missing source.
+  const applySource = (next: CombinedSource) => {
+    if (next.video) {
+      video.src = next.video.url
+      video.style.setProperty('aspect-ratio', `${next.video.width} / ${next.video.height}`)
+    }
+    if (next.audio) audio.src = next.audio.url
+  }
+  applySource(source.get())
+  source.onChange(applySource)
 
   // Handle initial playing
   if (options.startTimeMS) {

@@ -17,21 +17,40 @@ export async function processPlayer({
   streamingData,
   captions,
 }: PlayerResponse): Promise<std.Player> {
-  console.log(videoDetails, playerConfig, streamingData, captions)
+  // YouTube increasingly returns formats with neither a direct `url` nor a
+  // `signatureCipher` (server-side / SABR streaming). Keep only formats we can
+  // actually build a URL for, and let any single format that fails to build or
+  // decode drop out rather than failing the whole player.
+  const buildSource = async <Type extends std.SourceType>(
+    build: () => std.Source<Type>,
+  ): Promise<std.Source<Type> | undefined> => {
+    try {
+      return await decodeFormatUrl(build(), videoDetails.videoId)
+    } catch {
+      return undefined
+    }
+  }
+  const hasPlayableUrl = (format: PlayerFormat | PlayerAdaptiveFormat) =>
+    Boolean(format.url || format.signatureCipher)
+
+  const sources = (
+    await Promise.all([
+      ...streamingData.formats
+        .filter(hasPlayableUrl)
+        .map((format) => buildSource(() => processFormat(format))),
+      ...streamingData.adaptiveFormats
+        .filter(hasPlayableUrl)
+        .map((format) => buildSource(() => processAdaptiveFormat(format))),
+    ])
+  ).filter((source): source is std.Source => source !== undefined)
+
   return {
     provider: ProviderName.YT,
     type: videoDetails.isLiveContent ? std.VideoType.Live : std.VideoType.Static,
     id: videoDetails.videoId,
     title: videoDetails.title,
     staticThumbnail: videoDetails.thumbnail.thumbnails,
-    sources: await Promise.all([
-      ...streamingData.formats
-        .map(processFormat)
-        .map((format) => decodeFormatUrl(format, videoDetails.videoId)),
-      ...streamingData.adaptiveFormats
-        .map(processAdaptiveFormat)
-        .map((format) => decodeFormatUrl(format, videoDetails.videoId)),
-    ]),
+    sources,
     closedCaptions: captions !== undefined ? processCaptions(captions) : [],
     viewedLength: playerConfig.playbackStartConfig?.startSeconds ?? 0,
     length: Number(videoDetails.lengthSeconds),

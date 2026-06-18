@@ -17,7 +17,7 @@ import { makeContinuationIterator } from '@yt/core/api'
 import type { RichItem } from '@yt/components/item'
 import { processVideo, type Video } from './processors/regular'
 import { type LockupViewModel, isLockupVideo, processLockupVideo } from './processors/lockup'
-import { processCompactVideo } from './processors/compact'
+import { type CompactVideo, processCompactVideo } from './processors/compact'
 import { processPlayer } from './processors/player'
 import { getContinuationResponseItems } from '../components/continuation'
 import { isLiveThumbnailOverlay, type ThumbnailOverlays } from '../components/thumbnail'
@@ -55,6 +55,20 @@ const processRecommendedItem = (
     }
   } catch (error) {
     console.warn('Failed to process recommended item', error)
+  }
+  return undefined
+}
+
+// Related videos migrated from `compactVideoRenderer` to `lockupViewModel`; handle both.
+const processRelatedItem = (
+  item: CompactVideo | { lockupViewModel: LockupViewModel } | Renderer,
+): std.Video | undefined => {
+  try {
+    if ('compactVideoRenderer' in item) return processCompactVideo(item as CompactVideo)
+    const lockup = (item as { lockupViewModel?: LockupViewModel }).lockupViewModel
+    if (lockup && isLockupVideo(lockup)) return processLockupVideo(lockup)
+  } catch (error) {
+    console.warn('Failed to process related item', error)
   }
   return undefined
 }
@@ -98,7 +112,7 @@ export async function getVideo(videoId: string): Promise<std.Video> {
     related: async function* (): AsyncGenerator<std.Video[]> {
       for await (const relatedVideos of relatedVideosIterator) {
         // todo: handle compactPlaylistRenderer
-        yield relatedVideos.filter(isRenderer('compactVideo')).map(processCompactVideo)
+        yield relatedVideos.map(processRelatedItem).filter((video): video is std.Video => video !== undefined)
       }
     },
   }
