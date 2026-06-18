@@ -19,6 +19,7 @@ import { processVideo, type Video } from './processors/regular'
 import { type LockupViewModel, isLockupVideo, processLockupVideo } from './processors/lockup'
 import { type CompactVideo, processCompactVideo } from './processors/compact'
 import { processPlayer } from './processors/player'
+import { buildDashManifest } from './processors/player/dash'
 import { getContinuationResponseItems } from '../components/continuation'
 import { isLiveThumbnailOverlay, type ThumbnailOverlays } from '../components/thumbnail'
 export * from './types'
@@ -119,12 +120,16 @@ export async function getVideo(videoId: string): Promise<std.Video> {
 }
 
 export async function getPlayer(videoId: string) {
-  const [player, segments] = await Promise.all([
-    fetchPlayer(videoId).then(processPlayer),
+  const [response, segments] = await Promise.all([
+    fetchPlayer(videoId),
     // SponsorBlock is a non-essential third party; never let it block playback.
     fetchSponsorBlock(videoId).catch(() => []),
   ])
-  return { ...player, segments }
+  const player = await processPlayer(response)
+  // A DASH manifest assembled from the IOS adaptive formats, fed to the video.js
+  // player; dash.js fetches its byte ranges through the FKN extension.
+  const dashManifest = buildDashManifest(response.streamingData, Number(response.videoDetails.lengthSeconds))
+  return { ...player, segments, dashManifest }
 }
 
 export const setVideoLikeStatus = async (
