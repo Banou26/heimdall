@@ -17,12 +17,34 @@ import {
 import { isTab } from './helpers'
 import { processChannelPage } from './processors/channel-page'
 import { type ChannelTabByName, ChannelTabName } from './types'
-import { processVideo } from '../video/processors/regular'
+import { type Video, processVideo } from '../video/processors/regular'
+import { type LockupViewModel, isLockupVideo, processLockupVideo } from '../video/processors/lockup'
 import { processShelf } from './processors/shelf'
 import { getEndpointUrl } from '../components/utility/endpoint'
 import { processGridPlaylist } from '../playlist/processors/grid'
 
 export const getChannel = (channelId: string): Promise<std.Channel> => processChannelPage(channelId)
+
+// Channel feeds mix the legacy `videoRenderer` with the newer `lockupViewModel`,
+// plus ads and continuation items. Pull videos out of the two we understand and
+// skip the rest, never throwing so a single odd item can't blank the feed.
+const isVideo = (video: std.Video | undefined): video is std.Video => video !== undefined
+const processVideoContent = (content: unknown): std.Video | undefined => {
+  try {
+    if (content && typeof content === 'object') {
+      if ('videoRenderer' in content) return processVideo(content as Video)
+      if ('lockupViewModel' in content) {
+        const lockup = (content as { lockupViewModel: LockupViewModel }).lockupViewModel
+        if (isLockupVideo(lockup)) return processLockupVideo(lockup)
+      }
+    }
+  } catch (error) {
+    console.warn('Failed to process channel video', error)
+  }
+  return undefined
+}
+const processRichItemVideo = (item: unknown): std.Video | undefined =>
+  processVideoContent((item as { richItemRenderer?: { content?: unknown } })?.richItemRenderer?.content)
 
 export async function* listChannelVideos(channelId: string): AsyncGenerator<std.Video[]> {
   const channelVideosIterator = makeContinuationIterator(
@@ -41,8 +63,7 @@ export async function* listChannelVideos(channelId: string): AsyncGenerator<std.
   )
 
   for await (const channelVideos of channelVideosIterator) {
-    console.log('channelVideos', channelVideos)
-    yield channelVideos.map((_) => _.richItemRenderer.content).map(processVideo)
+    yield channelVideos.map(processRichItemVideo).filter(isVideo)
   }
 }
 
@@ -51,23 +72,19 @@ export const getChannelFeaturedVideo = (
   home: ChannelTabByName<ChannelTabName.Home>['tabRenderer']['content'],
 ): std.Video | undefined => {
   // biome-ignore lint/complexity/useFlatMap: Typing issue means we have to do it this way
-  const featuredVideo = home.sectionListRenderer.contents
+  const items = home.sectionListRenderer.contents
     .filter(isRenderer('itemSection'))
     .map((section) => section.itemSectionRenderer.contents)
     .flat()
-    .find(isRenderer('channelFeaturedContent'))
-    ?.channelFeaturedContentRenderer.items.find(isRenderer('video'))
-  if (!featuredVideo) return
-  return processVideo(featuredVideo)
+    .find(isRenderer('channelFeaturedContent'))?.channelFeaturedContentRenderer.items
+  return items?.map(processVideoContent).find(isVideo)
 }
 
 export const listChannelLiveVideos = async (channelId: string): Promise<std.Video[]> =>
   fetchChannelLive(channelId)
     .then(getSelectedChannelTab)
     .then(getTabContent)
-    .then((live) =>
-      live.richGridRenderer.contents.flatMap((grid) => grid.richItemRenderer.content).map(processVideo),
-    )
+    .then((live) => live.richGridRenderer.contents.map(processRichItemVideo).filter(isVideo))
 
 export const listChannelShelves = async (channelId: string): Promise<std.Shelf[]> =>
   fetchChannelHome(channelId)
