@@ -16,6 +16,7 @@ import { processFullVideo } from './processors/full'
 import { makeContinuationIterator } from '@yt/core/api'
 import type { RichItem } from '@yt/components/item'
 import { processVideo, type Video } from './processors/regular'
+import { type LockupViewModel, isLockupVideo, processLockupVideo } from './processors/lockup'
 import { processCompactVideo } from './processors/compact'
 import { processPlayer } from './processors/player'
 import { getContinuationResponseItems } from '../components/continuation'
@@ -36,9 +37,26 @@ export async function* listRecommended(): AsyncGenerator<std.Video[]> {
     yield recommendedVideos
       .filter((renderer): renderer is RichItem<Video | Renderer<'radio'>> => 'richItemRenderer' in renderer)
       .map((renderer) => renderer.richItemRenderer.content)
-      .filter(isRenderer('video'))
-      .map(processVideo)
+      .map(processRecommendedItem)
+      .filter((video): video is std.Video => video !== undefined)
   }
+}
+
+// The home feed mixes the legacy `videoRenderer`, the newer `lockupViewModel`
+// (now the common case), ad slots and playlist lockups. Pull videos out of the
+// first two and skip the rest; a single bad item degrades to a skip.
+const processRecommendedItem = (
+  content: Video | Renderer<'radio'> | { lockupViewModel: LockupViewModel },
+): std.Video | undefined => {
+  try {
+    if ('videoRenderer' in content) return processVideo(content)
+    if ('lockupViewModel' in content && isLockupVideo(content.lockupViewModel)) {
+      return processLockupVideo(content.lockupViewModel)
+    }
+  } catch (error) {
+    console.warn('Failed to process recommended item', error)
+  }
+  return undefined
 }
 
 export async function getVideo(videoId: string): Promise<std.Video> {
