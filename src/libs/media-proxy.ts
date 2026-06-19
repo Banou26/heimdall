@@ -63,20 +63,15 @@ const installXhrProxy = () => {
 
     send(body?: Document | XMLHttpRequestBodyInit | null) {
       if (!this.#proxy) return super.send(body)
-      // Deliberately NOT forwarding an AbortSignal: aborting an in-flight
-      // proxyFetch wedges the extension's osra relay (and every later request).
-      // dash.js aborts on every seek, so instead we let the request finish in
-      // the background and just discard its result when aborted.
+      // Deliberately NOT forwarding an AbortSignal: dash.js aborts on every seek, so we
+      // let the request finish in the background and discard its result when aborted.
       fetchProxy(this.#url, {
         method: this.#method,
         headers: forgeOrigin(new Headers(this.#headers)),
         credentials: 'omit',
       })
         .then(async (response) => {
-          // Always fully drain the body, even when aborted: leaving an osra
-          // response stream unconsumed (or cancelling it) wedges the relay for
-          // every later request, but a fully-read stream frees cleanly. dash.js
-          // aborts on every seek, so we read then discard the result.
+          // Read the body to completion even when aborted, then discard if so.
           const buffer = await response.arrayBuffer()
           if (this.#aborted) return
           this.#responseHeaders = response.headers

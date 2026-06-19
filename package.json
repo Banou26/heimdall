@@ -21,7 +21,9 @@
 		"@mantine/hooks": "^7.10.0",
 		"@tabler/icons-react": "^3.5.0",
 		"@videojs/react": "10.0.0-beta.24",
+		"bgutils-js": "3.2.0",
 		"date-fns": "^3.6.0",
+		"googlevideo": "4.0.4",
 		"jotai": "^2.8.1",
 		"jotai-optics": "^0.4.0",
 		"optics-ts": "^2.4.1",
@@ -29,7 +31,8 @@
 		"react": "^18.3.1",
 		"react-dom": "^18.3.1",
 		"styled-components": "^6.1.11",
-		"wouter": "^3.1.3"
+		"wouter": "^3.1.3",
+		"youtubei.js": "^17.0.1"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^1.7.3",

@@ -23,3 +23,4 @@ export const fetchProxy = (url: string, init: RequestInit = {}): Promise<Respons
 export const cookies = extension.cookies
 export const setRequestHeaderRule = extension.setRequestHeaderRule
 export const removeRequestHeaderRule = extension.removeRequestHeaderRule
+export const attachFrame = extension.attachFrame
