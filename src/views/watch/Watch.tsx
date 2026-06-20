@@ -1,8 +1,8 @@
 import styled from 'styled-components'
-import { useEffect, useMemo } from 'react'
+import { useEffect } from 'react'
 
 import { useAsync } from '@/hooks/useAsync'
-import { getPlayer, getVideo } from '@yt/video'
+import { getVideo } from '@yt/video'
 import { WatchInfo } from './WatchInfo'
 import { VideoJsPlayer } from './player/VideoJsPlayer'
 
@@ -16,22 +16,13 @@ const WatchContainer = styled.main`
 
 export default function Watch({ params: { videoId } }: { params: { videoId: string } }) {
   const { data: video, error: videoError } = useAsync(() => getVideo(videoId), [videoId])
-  const { data: player, error: playerError } = useAsync(() => getPlayer(videoId), [videoId])
   useEffect(() => {
     if (videoError) console.error(videoError)
-    if (playerError) console.error(playerError)
-  }, [videoError, playerError])
-
-  // The video.js player consumes the DASH manifest as a blob URL.
-  const manifestUrl = useMemo(() => {
-    if (!player?.dashManifest) return undefined
-    return URL.createObjectURL(new Blob([player.dashManifest], { type: 'application/dash+xml' }))
-  }, [player?.dashManifest])
-  useEffect(() => () => void (manifestUrl && URL.revokeObjectURL(manifestUrl)), [manifestUrl])
+  }, [videoError])
 
   return (
     <WatchContainer>
-      {manifestUrl && <VideoJsPlayer src={manifestUrl} />}
+      <VideoJsPlayer key={videoId} videoId={videoId} />
       <WatchInfo video={video} />
     </WatchContainer>
   )

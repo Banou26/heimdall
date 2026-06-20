@@ -3,7 +3,8 @@
 // page context). The player drives YouTube's Server-ABR protocol with these.
 export { SabrStream } from 'googlevideo/sabr-stream'
 export { SabrStreamingAdapter, SabrUmpProcessor } from 'googlevideo/sabr-streaming-adapter'
-export { RequestMetadataManager, FormatKeyUtils } from 'googlevideo/utils'
+export { RequestMetadataManager, FormatKeyUtils, buildSabrFormat } from 'googlevideo/utils'
+export { VideoPlaybackAbrRequest } from 'googlevideo/protos'
 export type { SabrFormat } from 'googlevideo/shared-types'
 export type {
   SabrPlayerAdapter,

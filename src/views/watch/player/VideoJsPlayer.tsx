@@ -2,12 +2,7 @@ import '@videojs/react/video/skin.css'
 import styled from 'styled-components'
 import { createPlayer } from '@videojs/react'
 import { VideoSkin, videoFeatures } from '@videojs/react/video'
-import { DashVideo } from '@videojs/react/media/dash-video'
-import { installMediaFetchProxy } from '@libs/media-proxy'
-
-// dash.js (under <DashVideo>) fetches segments from googlevideo, which has no
-// CORS - route those through the FKN extension. Installed once, on import.
-installMediaFetchProxy()
+import { ShakaVideo } from './sabr/ShakaVideo'
 
 const Player = createPlayer({ features: videoFeatures })
 
@@ -26,12 +21,15 @@ const PlayerContainer = styled.div`
   }
 `
 
-// `src` is a blob: URL of a DASH manifest built from the YouTube IOS formats.
-export const VideoJsPlayer = ({ src }: { src: string }) => (
+// SABR playback: Video.js owns the UI, Shaka owns the MSE timeline (so seeking
+// works), and the googlevideo adapter drives YouTube's Server-ABR protocol over
+// the FKN extension. `videoId` is the YouTube id - ShakaMedia builds everything
+// else from the InnerTube player response.
+export const VideoJsPlayer = ({ videoId }: { videoId: string }) => (
   <PlayerContainer>
     <Player.Provider>
       <VideoSkin>
-        <DashVideo src={src} />
+        <ShakaVideo src={videoId} />
       </VideoSkin>
     </Player.Provider>
   </PlayerContainer>
