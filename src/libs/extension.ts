@@ -20,6 +20,16 @@ export const fetchProxy = (url: string, init: RequestInit = {}): Promise<Respons
   return extension.fetch(url, { ...init, headers, credentials: init.credentials ?? 'include' })
 }
 
+// Direct binary path for large media (googlevideo): the bytes stream from an
+// extension-origin iframe over structured-clone postMessage, never through the
+// service worker's chrome.runtime hop - so no JSON/base64 tax on each MB-sized
+// segment. Cookieless + media-host-only; use `fetchProxy` for everything else.
+export const mediaFetch = (url: string, init?: RequestInit): Promise<Response> =>
+  (extension as unknown as { mediaFetch: (u: string, i?: RequestInit) => Promise<Response> }).mediaFetch(
+    url,
+    init,
+  )
+
 export const cookies = extension.cookies
 export const setRequestHeaderRule = extension.setRequestHeaderRule
 export const removeRequestHeaderRule = extension.removeRequestHeaderRule

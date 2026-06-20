@@ -1,23 +1,19 @@
-import { fetchProxy } from '@libs/extension'
+import { mediaFetch } from '@libs/extension'
 import { VideoPlaybackAbrRequest } from '@libs/sabr'
 
-// Network layer for the googlevideo SABR client. Every SABR request runs in the
-// FKN extension service worker (CORS-free), forging the youtube.com Origin/Referer
-// the media endpoint expects.
+// Network layer for the googlevideo SABR client. Media segments stream through an
+// extension-origin iframe (mediaFetch) over structured-clone postMessage - real bytes,
+// no service-worker chrome.runtime/base64 hop - forging the youtube.com Origin/Referer
+// the CDN expects. Cookieless: SABR media URLs are signature/PoToken-signed, so they
+// don't need the user's cookies even for logged-in playback.
 //
-// Playback defaults to the user's logged-in YouTube session (credentials:'include').
-// Set globalThis.__sabrCookieless to force the anonymous path.
-//
-// The abort signal IS forwarded: the SABR adapter aborts each response after its
-// first segment (the reference's model), and osra >=0.5.7 propagates the cancel to
-// tear down the SW fetch cleanly (the old "drain, never abort" rule was a workaround
-// for an osra ordering bug fixed in 0.5.7).
+// The abort signal IS forwarded: the SABR adapter aborts each response after its first
+// segment, and osra's abort-signal revivable propagates the cancel across the channel.
 export const sabrFetch: typeof fetch = (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   const headers = new Headers(init?.headers)
   headers.set('origin', 'https://www.youtube.com')
   headers.set('referer', 'https://www.youtube.com')
-  const cookieless = !!(globalThis as Record<string, unknown>).__sabrCookieless
   // The googlevideo adapter omits clientAbrState.playbackAuthorization, but real
   // youtube.com sends it (authorizedFormats: audio + video + HDR video). Without it
   // GVS limits the stream to the ~60s preview. Inject it into the SABR request body.
@@ -53,11 +49,10 @@ export const sabrFetch: typeof fetch = (input, init) => {
   } catch {
     /* leave body unchanged */
   }
-  return fetchProxy(url, {
+  return mediaFetch(url, {
     method: init?.method ?? 'POST',
     headers,
     body: outBody ?? undefined,
-    credentials: cookieless ? 'omit' : 'include',
     signal: init?.signal ?? undefined,
   })
 }
