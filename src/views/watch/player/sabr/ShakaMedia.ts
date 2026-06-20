@@ -84,6 +84,10 @@ export class ShakaMedia extends HostBase {
       // serve opus over SABR, so picking m4a (itag 140) gets no media back.
       player.configure({
         preferredAudioCodecs: ['opus', 'mp4a.40.2', 'mp4a.40.5'],
+        // Don't fetch a resolution larger than the player: a 4K (itag 401) av01
+        // segment is 5-9 MB and takes ~1s to stream, so seeks crawl. Matching the
+        // element size (what youtube's player does) keeps segments ~1-2 MB.
+        abr: { restrictToElementSize: true },
         streaming: {
           // A large bufferingGoal makes GVS front-load a big burst per SABR response,
           // which the relay must stream before the segment is usable - slow seeks.
