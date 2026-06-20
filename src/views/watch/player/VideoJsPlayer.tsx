@@ -1,36 +1,23 @@
-import '@videojs/react/video/skin.css'
-import styled from 'styled-components'
 import { createPlayer } from '@videojs/react'
-import { VideoSkin, videoFeatures } from '@videojs/react/video'
-import { ShakaVideo } from './sabr/ShakaVideo'
+import { videoFeatures } from '@videojs/react/video'
 
-const Player = createPlayer({ features: videoFeatures })
+import { Player } from './Player'
+import type { PlayerInstance } from './hooks/usePlayerInstance'
 
-const PlayerContainer = styled.div`
-  width: 100%;
-  background: black;
-  /* aspect-ratio on a flex item doesn't drive height, so size the <video>
-     itself - the box must have real dimensions or the browser won't decode it. */
-  & video {
-    display: block;
-    width: 100%;
-    height: auto;
-    aspect-ratio: 16 / 9;
-    object-fit: contain;
-    background: black;
-  }
-`
+const VideoPlayer = createPlayer({ features: videoFeatures })
 
-// SABR playback: Video.js owns the UI, Shaka owns the MSE timeline (so seeking
-// works), and the googlevideo adapter drives YouTube's Server-ABR protocol over
-// the FKN extension. `videoId` is the YouTube id - ShakaMedia builds everything
-// else from the InnerTube player response.
-export const VideoJsPlayer = ({ videoId }: { videoId: string }) => (
-  <PlayerContainer>
-    <Player.Provider>
-      <VideoSkin>
-        <ShakaVideo src={videoId} />
-      </VideoSkin>
-    </Player.Provider>
-  </PlayerContainer>
+// SABR playback hosted in @videojs/react v10: the Provider + ShakaVideo own the
+// media engine (Shaka MSE timeline + the googlevideo SABR adapter over the FKN
+// extension), while heimdall's own custom control UI (`Player`) replaces the
+// default skin. The built PlayerInstance is lifted to Watch via onInstance.
+export const VideoJsPlayer = ({
+  videoId,
+  onInstance,
+}: {
+  videoId: string
+  onInstance: (instance?: PlayerInstance) => void
+}) => (
+  <VideoPlayer.Provider>
+    <Player videoId={videoId} onInstance={onInstance} />
+  </VideoPlayer.Provider>
 )

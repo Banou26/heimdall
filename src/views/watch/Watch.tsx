@@ -1,10 +1,12 @@
 import styled from 'styled-components'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { useAsync } from '@/hooks/useAsync'
 import { getVideo } from '@yt/video'
 import { WatchInfo } from './WatchInfo'
 import { VideoJsPlayer } from './player/VideoJsPlayer'
+import { PlayerContext } from './player/context'
+import type { PlayerInstance } from './player/hooks/usePlayerInstance'
 
 const WatchContainer = styled.main`
   display: flex;
@@ -16,14 +18,19 @@ const WatchContainer = styled.main`
 
 export default function Watch({ params: { videoId } }: { params: { videoId: string } }) {
   const { data: video, error: videoError } = useAsync(() => getVideo(videoId), [videoId])
+  // The player builds its adapter inside <Player.Provider>; lift it here so both
+  // the player UI and WatchInfo (copy-link-at-timestamp) share one PlayerContext.
+  const [instance, setInstance] = useState<PlayerInstance>()
   useEffect(() => {
     if (videoError) console.error(videoError)
   }, [videoError])
 
   return (
-    <WatchContainer>
-      <VideoJsPlayer key={videoId} videoId={videoId} />
-      <WatchInfo video={video} />
-    </WatchContainer>
+    <PlayerContext.Provider value={instance}>
+      <WatchContainer>
+        <VideoJsPlayer key={videoId} videoId={videoId} onInstance={setInstance} />
+        <WatchInfo video={video} />
+      </WatchContainer>
+    </PlayerContext.Provider>
   )
 }

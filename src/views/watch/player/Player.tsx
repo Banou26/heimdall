@@ -1,76 +1,113 @@
 import type React from 'react'
-import { memo, useContext, useEffect, useRef } from 'react'
+import { useContext, useEffect } from 'react'
 import styled from 'styled-components'
 
-import { Row } from 'lese'
-import { LoadingOverlay, Skeleton } from '@mantine/core'
-import { PlayerContext } from './context'
-import { ClosedCaptions } from './ClosedCaptions'
-import { Controls } from './Controls'
-
-import { useIsFullscreen } from '@/hooks/useIsFullscreen'
+import { LoadingOverlay } from '@mantine/core'
 import { useHover, useIdle } from '@mantine/hooks'
-import { useBuffering, usePlayerState } from './hooks/use'
-import useDoubleClick from '@/hooks/useDoubleClick'
-import { useDelayedToggle } from '@/hooks/useDelayed'
-import { PlayerState } from './hooks/usePlayerInstance'
-import { usePlayerHotkeys } from './hooks/usePlayerHotkeys'
+
+import { ShakaVideo } from './sabr/ShakaVideo'
+import { PlayerContext } from './context'
+import { Controls } from './Controls'
+import { ClosedCaptions } from './ClosedCaptions'
 import { Categories } from './Categories'
 import { Tracking } from './Tracking'
+import { PlayerState, useShakaPlayerInstance, type PlayerInstance } from './hooks/usePlayerInstance'
+import { useBuffering, usePlayerState } from './hooks/use'
+import { usePlayerHotkeys } from './hooks/usePlayerHotkeys'
+import { useIsFullscreen } from '@/hooks/useIsFullscreen'
+import useDoubleClick from '@/hooks/useDoubleClick'
+import { useDelayedToggle } from '@/hooks/useDelayed'
 
-export const Player: FC = () => {
-  const playerInstance = useContext(PlayerContext)
-  if (!playerInstance) return <PlayerSkeleton />
-  return <PlayerUI />
-}
-
-const PlayerSkeleton: FC = () => (
-  <div style={{ aspectRatio: '16 / 9' }}>
-    <Skeleton height="100%" width="100%" style={{ aspectRatio: '16 / 9', maxHeight: '87vh' }} />
-  </div>
-)
-
-const PlayerContainer = styled.div<{
-  $isFullscreen: boolean
-  $hideMouse: boolean
-}>`
+const PlayerContainer = styled.div<{ $isFullscreen: boolean; $hideMouse: boolean }>`
   position: relative;
+  background: black;
   ${({ $hideMouse }) => $hideMouse && 'cursor: none;'}
 
   video {
+    display: block;
     width: 100%;
-    height: ${({ $isFullscreen }) => ($isFullscreen ? '100vh' : '100%')};
+    height: ${({ $isFullscreen }) => ($isFullscreen ? '100vh' : 'auto')};
     max-height: ${({ $isFullscreen }) => ($isFullscreen ? '100vh' : '90vh')};
+    aspect-ratio: 16 / 9;
+    object-fit: contain;
     background-color: black;
   }
 `
 
-const PlayerUI: FC = () => {
-  const playerInstance = useContext(PlayerContext)
-  const { state: playerState, togglePlay } = usePlayerState(playerInstance!)
-  const { buffering } = useBuffering(playerInstance!)
-  const showBuffering = useDelayedToggle(buffering, 400) && playerState === PlayerState.Playing
-  const { isFullscreen, toggle: toggleFullscreen } = useIsFullscreen()
+// Full-size transparent layer over the <video> that captures play/fullscreen
+// clicks and hosts the controls; the video shows through, the controls sit at
+// the bottom (and stop propagation so clicking them doesn't toggle playback).
+const Overlay = styled.div`
+  position: absolute;
+  inset: 0;
+`
 
-  const idle = useIdle(1000, { events: ['mousemove'] })
-  const { hovered, ref: playerRef } = useHover<HTMLDivElement>()
-  usePlayerHotkeys(playerRef)
+// The player owns the v10/Shaka adapter (built via useMedia inside Player.Provider)
+// and provides it on PlayerContext for the controls; it also lifts it to Watch (so
+// WatchInfo can read the current time). ShakaVideo renders unconditionally - it's
+// what creates the media the adapter wraps - and the controls overlay it once ready.
+export const Player: React.FC<{
+  videoId: string
+  onInstance: (instance?: PlayerInstance) => void
+}> = ({ videoId, onInstance }) => {
+  const instance = useShakaPlayerInstance(videoId)
+  useEffect(() => {
+    onInstance(instance)
+    return () => onInstance(undefined)
+  }, [instance, onInstance])
 
   return (
-    <PlayerContainer
-      ref={playerRef}
-      $hideMouse={idle && hovered}
-      $isFullscreen={isFullscreen}
-      onClick={useDoubleClick({
-        onEagerSingleClick: () => togglePlay(playerState),
-        onDoubleClick: (triggeredEager) => {
-          toggleFullscreen()
-          if (triggeredEager) togglePlay(playerState)
-        },
-      })}
-    >
-      <Video />
-      <Controls key="controls" mouseActive={hovered && !idle} playerRoot={playerRef} />
+    <PlayerContext.Provider value={instance}>
+      <PlayerShell videoId={videoId} />
+    </PlayerContext.Provider>
+  )
+}
+
+const PlayerShell: React.FC<{ videoId: string }> = ({ videoId }) => {
+  const instance = useContext(PlayerContext)
+  const { isFullscreen } = useIsFullscreen()
+  const idle = useIdle(1000, { events: ['mousemove'] })
+  const { hovered, ref: playerRef } = useHover<HTMLDivElement>()
+
+  return (
+    <PlayerContainer ref={playerRef} $isFullscreen={isFullscreen} $hideMouse={idle && hovered && !!instance}>
+      <ShakaVideo src={videoId} />
+      {instance ? (
+        <PlayerOverlay instance={instance} playerRoot={playerRef} mouseActive={hovered && !idle} />
+      ) : (
+        <LoadingOverlay
+          zIndex={1}
+          loaderProps={{ color: 'white', size: 48 }}
+          style={{ pointerEvents: 'none' }}
+          visible
+        />
+      )}
+    </PlayerContainer>
+  )
+}
+
+const PlayerOverlay: React.FC<{
+  instance: PlayerInstance
+  playerRoot: React.RefObject<HTMLDivElement>
+  mouseActive: boolean
+}> = ({ instance, playerRoot, mouseActive }) => {
+  const { state: playerState, togglePlay } = usePlayerState(instance)
+  const { buffering } = useBuffering(instance)
+  const showBuffering = useDelayedToggle(buffering, 400) && playerState === PlayerState.Playing
+  const { toggle: toggleFullscreen } = useIsFullscreen()
+  usePlayerHotkeys(playerRoot)
+
+  const onClick = useDoubleClick({
+    onEagerSingleClick: () => togglePlay(playerState),
+    onDoubleClick: (triggeredEager) => {
+      toggleFullscreen()
+      if (triggeredEager) togglePlay(playerState)
+    },
+  })
+
+  return (
+    <Overlay onClick={onClick}>
+      <Controls key="controls" mouseActive={mouseActive} playerRoot={playerRoot} />
       <LoadingOverlay
         zIndex={1}
         loaderProps={{ color: 'white', size: 48 }}
@@ -80,23 +117,6 @@ const PlayerUI: FC = () => {
       <ClosedCaptions />
       <Categories />
       <Tracking />
-    </PlayerContainer>
+    </Overlay>
   )
 }
-
-const Video: React.FC = memo(() => {
-  const playerInstance = useContext(PlayerContext)
-  const videoContainerRef = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    const videoContainer = videoContainerRef.current
-    if (!videoContainer) return
-    videoContainer.appendChild(playerInstance!.video)
-    return () => {
-      videoContainer.removeChild(playerInstance!.video)
-    }
-  }, [playerInstance])
-
-  return <Row style={{ height: '100%' }} ref={videoContainerRef} />
-})
-Video.displayName = 'Video'

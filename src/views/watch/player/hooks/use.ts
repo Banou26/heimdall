@@ -46,8 +46,9 @@ export const useSource = (player: PlayerInstance) => {
 }
 
 export const useSegments = (player: PlayerInstance) => {
-  const [segments, setSegments] = useState(player.segments)
-  useEffect(() => setSegments(player.segments), [player])
+  const [segments, setSegments] = useState(player.segments.get)
+  useEffect(() => player.segments.onChange(setSegments), [player])
+  useEffect(() => setSegments(player.segments.get), [player])
   return { segments }
 }
 

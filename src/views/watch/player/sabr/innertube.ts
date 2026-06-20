@@ -2,6 +2,8 @@ import { mintPoToken } from '@libs/botguard'
 import { fetchProxy } from '@libs/extension'
 import { buildSabrFormat } from '@libs/sabr'
 import type { SabrFormat } from '@libs/sabr'
+import type * as std from '@std'
+import { processCaptions } from '@yt/video/processors/player/captions'
 import { fetchSAPISID } from '@/parser/yt/core/api/sapisid'
 import type { Types } from 'youtubei.js/web'
 import { Constants, Innertube, Platform, Utils, YT } from 'youtubei.js/web'
@@ -84,6 +86,7 @@ export type SabrSource = {
   formats: SabrFormat[]
   clientInfo: Record<string, unknown>
   durationMs: number
+  closedCaptions: std.ClosedCaption[]
   mintPoToken: () => Promise<string>
 }
 
@@ -235,6 +238,16 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
   // account's datasyncId, logged-OUT to the videoId (mintAsWebsafeString(videoId)).
   const datasyncId = extractDatasyncId(info)
 
+  // Structured caption tracks for the custom word-level display (the SABR manifest
+  // also carries VTT, but shaka's native rendering is disabled in favour of this).
+  let closedCaptions: std.ClosedCaption[] = []
+  try {
+    const captions = (raw as unknown as { captions?: Parameters<typeof processCaptions>[0] }).captions
+    if (captions) closedCaptions = processCaptions(captions)
+  } catch {
+    /* video has no captions or an unexpected shape */
+  }
+
   return {
     manifestUri,
     serverAbrStreamingUrl,
@@ -242,6 +255,7 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
     formats: (sd?.adaptive_formats ?? []).map((f) => buildSabrFormat(f as never)),
     clientInfo,
     durationMs: Number(info.basic_info?.duration ?? 0) * 1000,
+    closedCaptions,
     // Full BotGuard integrity WebPO token from a session-bound /att/get challenge
     // (FreeTube's approach) - satisfies GVS attestation past the cold-start preview.
     mintPoToken: async () => mintPoToken(datasyncId || videoId, innertube.session.context),

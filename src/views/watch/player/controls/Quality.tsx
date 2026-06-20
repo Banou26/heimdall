@@ -1,62 +1,25 @@
 import { IconCheck, IconSettingsFilled } from '@tabler/icons-react'
-import { useContext, useMemo } from 'react'
-import { PlayerContext } from '../context'
-import { useSource } from '../hooks/use'
-import type { CombinedSource } from '../hooks/usePlayerInstance'
+import { useContext } from 'react'
 import * as std from '@std'
 import { Menu } from '@mantine/core'
+
+import { PlayerContext } from '../context'
+import { useSource } from '../hooks/use'
+import { AUTO_QUALITY, type CombinedSource } from '../hooks/usePlayerInstance'
 import { ControlButton } from '../components/ControlButton'
 
-type QualityOption = {
-  width: number
-  height: number
-  aspectRatio: number
-  frameRate: number
-  bitRate: number
-  source: CombinedSource
-}
-
-const getQualityOptions = (sources: std.Source<std.SourceType>[]) => {
-  const bestAudioSource = sources
-    .filter(std.isAudioSource)
-    .sort((a, b) => (b.audioBitrate ?? 0) - (a.audioBitrate ?? 0))[0]
-  if (!bestAudioSource) {
-    throw Error('An audio source must be available for now')
-  }
-  const combinedQualityOptions = sources.filter(std.isVideoSource).map((source) => ({
-    width: source.width,
-    height: source.height,
-    aspectRatio: source.height / source.width,
-    frameRate: source.frameRate,
-    bitRate: source.videoBitrate!,
-    source: { video: source, audio: bestAudioSource },
-  }))
-  const videoQualityOptions = sources.filter(std.isAudioVideoSource).map((source) => ({
-    width: source.width,
-    height: source.height,
-    aspectRatio: source.height / source.width,
-    frameRate: source.frameRate,
-    bitRate: source.videoBitrate!,
-    source: { video: source, audio: source },
-  }))
-  return (
-    [...combinedQualityOptions, ...videoQualityOptions]
-      .sort((a, b) => b.bitRate - a.bitRate)
-      .sort((a, b) => b.frameRate - a.frameRate)
-      .sort((a, b) => b.height - a.height)
-      // We've sorted by the best sources so now remove duplicates
-      .filter(
-        (source, index, sources) =>
-          !sources.slice(0, index).some((previousSource) => previousSource.height === source.height),
-      )
-  )
-}
-
+// Quality is driven by shaka variant tracks (reshaped into std.Source by the
+// adapter). Picking a height pins that variant (ABR off); "Auto" hands back to
+// shaka's ABR (which respects restrictToElementSize). The adapter's source
+// listener does the actual shaka selectVariantTrack / abr toggle.
 export const Quality: React.FC = () => {
   const playerInstance = useContext(PlayerContext)
   const { source: selectedSource, sources, setSource } = useSource(playerInstance!)
-  const selectedSourceHeight = selectedSource?.video.height ?? 0
-  const qualityOptions: QualityOption[] = useMemo(() => getQualityOptions(sources), [sources])
+  const auto = !!(selectedSource?.video as { __auto?: boolean } | undefined)?.__auto
+  const selectedHeight = auto ? undefined : selectedSource?.video.height
+  const videoSources = sources.filter(std.isVideoSource)
+  const select = (video: CombinedSource['video']) =>
+    setSource({ video, audio: video as unknown as CombinedSource['audio'] })
 
   return (
     <Menu position="top" closeOnItemClick={false}>
@@ -67,13 +30,21 @@ export const Quality: React.FC = () => {
       </Menu.Target>
       <Menu.Dropdown>
         <Menu.Label>Quality</Menu.Label>
-        {qualityOptions.map(({ height, aspectRatio, frameRate, source }) => (
+        <Menu.Item
+          leftSection={<IconCheck size={16} style={{ opacity: Number(auto) }} />}
+          onClick={() => select(AUTO_QUALITY as unknown as CombinedSource['video'])}
+        >
+          Auto
+        </Menu.Item>
+        {videoSources.map((source) => (
           <Menu.Item
-            key={height}
-            leftSection={<IconCheck size={16} style={{ opacity: Number(selectedSourceHeight === height) }} />}
-            onClick={() => setSource(source)}
+            key={source.height}
+            leftSection={
+              <IconCheck size={16} style={{ opacity: Number(selectedHeight === source.height) }} />
+            }
+            onClick={() => select(source)}
           >
-            {Math.round((height / aspectRatio / 16) * 9)}p{frameRate > 30 ? frameRate : ''}
+            {source.height}p{source.frameRate > 30 ? Math.round(source.frameRate) : ''}
           </Menu.Item>
         ))}
       </Menu.Dropdown>

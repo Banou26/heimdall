@@ -1,4 +1,5 @@
 import shaka from 'shaka-player'
+import type * as std from '@std'
 import { DashMedia } from '@videojs/core/dom/media/dash'
 import { SabrStreamingAdapter } from '@libs/sabr'
 import { ShakaPlayerAdapter } from './ShakaPlayerAdapter'
@@ -23,9 +24,16 @@ export class ShakaMedia extends HostBase {
   #adapter?: SabrStreamingAdapter
   #src = ''
   #loading = false
+  #closedCaptions: std.ClosedCaption[] = []
 
   get engine() {
     return this.#player
+  }
+
+  // Structured caption tracks parsed from the player response, for the custom
+  // word-level caption display (the player UI reads these via the adapter).
+  get closedCaptions(): std.ClosedCaption[] {
+    return this.#closedCaptions
   }
 
   get src() {
@@ -76,6 +84,7 @@ export class ShakaMedia extends HostBase {
     void (async () => {
       shaka.polyfill.installAll()
       const source = await getSabrSource(videoId)
+      this.#closedCaptions = source.closedCaptions
       const player = new shaka.Player()
       this.#player = player
       // Keep SABR bursts modest: the server streams up to the buffering goal in a
