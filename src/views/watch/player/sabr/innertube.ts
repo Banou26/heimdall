@@ -169,6 +169,27 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
     )
 
   const sd = info.streaming_data
+  // YouTube serves several xtags variants of each audio itag (plain / DRC-normalised /
+  // auto-dubbed). The real web player lists ALL of them and lets GVS pick; the Shaka
+  // adapter instead pins ONE in selectedFormatIds, and GVS returns no media for a
+  // non-default variant - playback then errors out. Keep only the plain (no-xtags,
+  // non-dubbed) audio so the pinned format is always one GVS serves; video is untouched.
+  const isPlainAudio = (f: unknown) => {
+    const ff = f as { has_audio?: boolean; has_video?: boolean }
+    return ff.has_audio && !ff.has_video
+  }
+  if (sd?.adaptive_formats) {
+    const plain = sd.adaptive_formats.filter((f) => {
+      const ff = f as {
+        xtags?: string
+        is_dubbed?: boolean
+        is_descriptive?: boolean
+        is_auto_dubbed?: boolean
+      }
+      return !(isPlainAudio(f) && (ff.xtags || ff.is_dubbed || ff.is_descriptive || ff.is_auto_dubbed))
+    })
+    if (plain.some(isPlainAudio)) sd.adaptive_formats = plain
+  }
   const rawUrl = sd?.server_abr_streaming_url
   if (!rawUrl) throw new Error('sabr: no server_abr_streaming_url in player response')
   // The server_abr_streaming_url lacks the cpn (Client Playback Nonce) + alr that

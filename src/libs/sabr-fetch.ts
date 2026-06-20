@@ -41,11 +41,12 @@ export const sabrFetch: typeof fetch = (input, init) => {
           ],
         }
         // youtube.com sends a real viewport + quality hints; a 0x0 viewport reads as
-        // "no video display" and can keep the stream at the preview tier.
+        // "no video display" and can keep the stream at the preview tier. (drcEnabled
+        // is intentionally NOT set: it makes GVS expect the DRC audio variant, but
+        // Shaka requests the plain itag, so multi-variant videos get no media back.)
         d.clientAbrState.clientViewportWidth = 1280
         d.clientAbrState.clientViewportHeight = 720
         d.clientAbrState.av1QualityThreshold = 1080
-        d.clientAbrState.drcEnabled = true
         outBody = VideoPlaybackAbrRequest.encode(d as never).finish()
       }
     }

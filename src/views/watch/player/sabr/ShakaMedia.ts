@@ -80,7 +80,12 @@ export class ShakaMedia extends HostBase {
       this.#player = player
       // Keep SABR bursts modest: the server streams up to the buffering goal in a
       // single response, and every byte is drained through the FKN relay.
-      player.configure({ streaming: { bufferingGoal: 30, rebufferingGoal: 2, bufferBehind: 30 } })
+      // Prefer opus audio (what youtube's web player requests): some videos only
+      // serve opus over SABR, so picking m4a (itag 140) gets no media back.
+      player.configure({
+        preferredAudioCodecs: ['opus', 'mp4a.40.2', 'mp4a.40.5'],
+        streaming: { bufferingGoal: 30, rebufferingGoal: 2, bufferBehind: 30 },
+      })
       await player.attach(videoEl)
 
       const adapter = new SabrStreamingAdapter({
