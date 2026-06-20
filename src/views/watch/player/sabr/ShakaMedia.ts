@@ -84,7 +84,17 @@ export class ShakaMedia extends HostBase {
       // serve opus over SABR, so picking m4a (itag 140) gets no media back.
       player.configure({
         preferredAudioCodecs: ['opus', 'mp4a.40.2', 'mp4a.40.5'],
-        streaming: { bufferingGoal: 30, rebufferingGoal: 2, bufferBehind: 30 },
+        streaming: {
+          // A large bufferingGoal makes GVS front-load a big burst per SABR response,
+          // which the relay must stream before the segment is usable - slow seeks.
+          // A small goal keeps each response tiny so the seek-target segment returns
+          // fast; resume on minimal buffer since refills are cheap thereafter.
+          bufferingGoal: 4,
+          // Resume playback as soon as the seek-point segment is decodable instead of
+          // accumulating buffer first (the user sees the seeked keyframe immediately).
+          rebufferingGoal: 0.2,
+          bufferBehind: 30,
+        },
       })
       await player.attach(videoEl)
 
