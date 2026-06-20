@@ -51,7 +51,11 @@ export async function processPlayer({
     title: videoDetails.title,
     staticThumbnail: videoDetails.thumbnail.thumbnails,
     sources,
-    closedCaptions: captions !== undefined ? processCaptions(captions) : [],
+    // This legacy parser path has no botguard session to mint the PO token the
+    // timedtext endpoint now requires; the live caption display is fed from the
+    // SABR path (getSabrSource) instead. Pass a no-op getter so it degrades to
+    // no cues rather than failing.
+    closedCaptions: captions !== undefined ? processCaptions(captions, () => Promise.resolve('')) : [],
     viewedLength: playerConfig?.playbackStartConfig?.startSeconds ?? 0,
     length: Number(videoDetails.lengthSeconds),
   }

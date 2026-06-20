@@ -236,14 +236,16 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
 
   // GVS/SABR WebPO token binding (FreeTube's approach): logged-IN binds to the
   // account's datasyncId, logged-OUT to the videoId (mintAsWebsafeString(videoId)).
+  // The same token gates the timedtext endpoint, so captions reuse this getter.
   const datasyncId = extractDatasyncId(info)
+  const getPoToken = () => mintPoToken(datasyncId || videoId, innertube.session.context)
 
   // Structured caption tracks for the custom word-level display (the SABR manifest
   // also carries VTT, but shaka's native rendering is disabled in favour of this).
   let closedCaptions: std.ClosedCaption[] = []
   try {
     const captions = (raw as unknown as { captions?: Parameters<typeof processCaptions>[0] }).captions
-    if (captions) closedCaptions = processCaptions(captions)
+    if (captions) closedCaptions = processCaptions(captions, getPoToken)
   } catch {
     /* video has no captions or an unexpected shape */
   }
@@ -258,7 +260,7 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
     closedCaptions,
     // Full BotGuard integrity WebPO token from a session-bound /att/get challenge
     // (FreeTube's approach) - satisfies GVS attestation past the cold-start preview.
-    mintPoToken: async () => mintPoToken(datasyncId || videoId, innertube.session.context),
+    mintPoToken: getPoToken,
   }
 }
 
