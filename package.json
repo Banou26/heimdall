@@ -16,7 +16,7 @@
 	},
 	"dependencies": {
 		"@emotion/is-prop-valid": "^1.2.2",
-		"@fkn/lib": "file:../fkn/web/lib",
+		"@fkn/lib": "^0.5.5",
 		"@mantine/core": "^7.10.0",
 		"@mantine/hooks": "^7.10.0",
 		"@tabler/icons-react": "^3.5.0",
