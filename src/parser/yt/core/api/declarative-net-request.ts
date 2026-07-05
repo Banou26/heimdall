@@ -1,16 +1,12 @@
 import { memoizeAsync } from '@libs/cache'
 import { removeRequestHeaderRule, setRequestHeaderRule } from '@libs/extension'
 
-// YouTube's image and video CDNs reject any request whose Origin/Referer isn't
-// youtube.com. Those loads are <img>/<video> subresources of this page, so they
-// never pass through fetchProxy - the FKN extension rewrites their headers with
-// a persistent, tab-scoped rule instead.
+// <img>/<video> subresources never pass through fetchProxy, so a tab-scoped extension
+// rule forges the youtube.com Origin/Referer their CDNs require.
 const MEDIA_DOMAINS = ['yt3.ggpht.com', 'i.ytimg.com', 'googlevideo.com']
 
-// The rule is tab-scoped and outlives reloads, so we remember its id to drop the
-// previous one before adding a fresh one. sessionStorage is the right home: it
-// shares the rule's exact lifetime (cleared when the tab closes, kept across
-// reloads), so the id we read back always matches a rule that still exists.
+// sessionStorage shares the tab-scoped rule's exact lifetime, so the stored id always
+// matches a rule that still exists; drop it before adding a fresh one.
 const RULE_ID_KEY = 'heimdall:mediaHeaderRuleId'
 
 export const setDeclarativeNetRequestHeaderRule = memoizeAsync(async () => {

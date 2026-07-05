@@ -229,11 +229,8 @@ export class ShakaPlayerAdapter implements SabrPlayerAdapter {
       let lastLoaded = 0
       let contentLength
 
-      // The reference's model: read until the first segment matching this request,
-      // return it, and abort the fetch (osra >=0.5.7 cancels the SW fetch cleanly).
-      // This keeps each SABR request to one segment so the adapter's buffered-range
-      // / playbackCookie state advances correctly per request - draining the whole
-      // burst left the server's lookahead stuck and it stalled after the grant.
+      // Return the first matching segment then abort: one segment per SABR request keeps
+      // the adapter's buffered-range/playbackCookie state advancing correctly.
       while (!abortController.signal.aborted) {
         let readObj
         try {
@@ -323,8 +320,6 @@ export class ShakaPlayerAdapter implements SabrPlayerAdapter {
         }
       }
 
-      // All googlevideo SABR requests go through the FKN extension (CORS-free,
-      // youtube.com origin forged); the no-abort behavior is intentional.
       const response = await sabrFetch(uri, init)
       headersReceived(headersToGenericObject(response.headers))
 
