@@ -17,32 +17,15 @@ import {
 import { isTab } from './helpers'
 import { processChannelPage } from './processors/channel-page'
 import { type ChannelTabByName, ChannelTabName } from './types'
-import { type Video, processVideo } from '../video/processors/regular'
-import { type LockupViewModel, isLockupVideo, processLockupVideo } from '../video/processors/lockup'
+import { processVideo } from '../video/processors/regular'
+import { isVideo, makeVideoItemProcessor } from '../video/processors/lockup'
 import { processShelf } from './processors/shelf'
 import { getEndpointUrl } from '../components/utility/endpoint'
 import { processGridPlaylist } from '../playlist/processors/grid'
 
 export const getChannel = (channelId: string): Promise<std.Channel> => processChannelPage(channelId)
 
-// Channel feeds mix the legacy `videoRenderer` with the newer `lockupViewModel`,
-// plus ads and continuation items. Pull videos out of the two we understand and
-// skip the rest, never throwing so a single odd item can't blank the feed.
-const isVideo = (video: std.Video | undefined): video is std.Video => video !== undefined
-const processVideoContent = (content: unknown): std.Video | undefined => {
-  try {
-    if (content && typeof content === 'object') {
-      if ('videoRenderer' in content) return processVideo(content as Video)
-      if ('lockupViewModel' in content) {
-        const lockup = (content as { lockupViewModel: LockupViewModel }).lockupViewModel
-        if (isLockupVideo(lockup)) return processLockupVideo(lockup)
-      }
-    }
-  } catch (error) {
-    console.warn('Failed to process channel video', error)
-  }
-  return undefined
-}
+const processVideoContent = makeVideoItemProcessor('videoRenderer', processVideo)
 const processRichItemVideo = (item: unknown): std.Video | undefined =>
   processVideoContent((item as { richItemRenderer?: { content?: unknown } })?.richItemRenderer?.content)
 

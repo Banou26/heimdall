@@ -1,4 +1,4 @@
-import * as std from '@std'
+import type * as std from '@std'
 import { ProviderName, VideoType, verifiedFrom } from '@std'
 import { durationTextToSeconds, fromShortHumanReadable } from '@yt/core/helpers'
 import { parseDate } from './helpers'
@@ -50,6 +50,27 @@ const tryOr = <T>(get: () => T): T | undefined => {
 
 export const isLockupVideo = (lockup: LockupViewModel): boolean =>
   lockup.contentType === 'LOCKUP_CONTENT_TYPE_VIDEO' && typeof lockup.contentId === 'string'
+
+export const isVideo = (video: std.Video | undefined): video is std.Video => video !== undefined
+
+// YouTube feeds mix a legacy renderer with the newer lockupViewModel, plus ads
+// and continuations; process the two we understand and skip the rest without throwing.
+export const makeVideoItemProcessor =
+  <T>(legacyKey: string, processLegacy: (item: T) => std.Video) =>
+  (item: unknown): std.Video | undefined => {
+    try {
+      if (item && typeof item === 'object') {
+        if (legacyKey in item) return processLegacy(item as T)
+        if ('lockupViewModel' in item) {
+          const lockup = (item as { lockupViewModel: LockupViewModel }).lockupViewModel
+          if (isLockupVideo(lockup)) return processLockupVideo(lockup)
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to process video item', error)
+    }
+    return undefined
+  }
 
 export const processLockupVideo = (lockup: LockupViewModel): std.Video => {
   const meta = lockup.metadata?.lockupMetadataViewModel

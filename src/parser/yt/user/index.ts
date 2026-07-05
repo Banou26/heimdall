@@ -1,4 +1,3 @@
-import type * as std from '@std'
 import { getChannel } from '@yt/channel'
 import { findRenderer, isRenderer } from '@yt/core/internals'
 import {
@@ -11,30 +10,14 @@ import {
   fetchUnsubscribe,
 } from './api'
 import { processChannelGuideEntry } from './processors'
-import { type Video, processVideo } from '../video/processors/regular'
-import { type LockupViewModel, isLockupVideo, processLockupVideo } from '../video/processors/lockup'
+import { processVideo } from '../video/processors/regular'
+import { isVideo, makeVideoItemProcessor } from '../video/processors/lockup'
 import { makeContinuationIterator } from '../core/api'
-import { subDays } from 'date-fns/subDays'
-
-// History and the subscriptions feed mix the legacy `videoRenderer` with the
-// newer `lockupViewModel`; process both and skip anything else without throwing.
-const isVideo = (video: std.Video | undefined): video is std.Video => video !== undefined
-const processVideoItem = (content: unknown): std.Video | undefined => {
-  try {
-    if (content && typeof content === 'object') {
-      if ('videoRenderer' in content) return processVideo(content as Video)
-      if ('lockupViewModel' in content) {
-        const lockup = (content as { lockupViewModel: LockupViewModel }).lockupViewModel
-        if (isLockupVideo(lockup)) return processLockupVideo(lockup)
-      }
-    }
-  } catch (error) {
-    console.warn('Failed to process video item', error)
-  }
-  return undefined
-}
 import { combineSomeText } from '../components/text'
 import { getContinuationResponseItems } from '../components/continuation'
+import { subDays } from 'date-fns/subDays'
+
+const processVideoItem = makeVideoItemProcessor('videoRenderer', processVideo)
 
 export const getUser = (userId: string) => getChannel(userId).then((channel) => channel.user)
 
