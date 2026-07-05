@@ -12,12 +12,14 @@ const VideoPlayer = createPlayer({ features: videoFeatures })
 // default skin. The built PlayerInstance is lifted to Watch via onInstance.
 export const VideoJsPlayer = ({
   videoId,
+  startTime,
   onInstance,
 }: {
   videoId: string
+  startTime?: number
   onInstance: (instance?: PlayerInstance) => void
 }) => (
   <VideoPlayer.Provider>
-    <Player videoId={videoId} onInstance={onInstance} />
+    <Player videoId={videoId} startTime={startTime} onInstance={onInstance} />
   </VideoPlayer.Provider>
 )

@@ -5,7 +5,6 @@ import { Menu } from '@mantine/core'
 
 import { PlayerContext } from '../context'
 import { useSource } from '../hooks/use'
-import { AUTO_QUALITY, type CombinedSource } from '../hooks/usePlayerInstance'
 import { ControlButton } from '../components/ControlButton'
 
 // Quality is driven by shaka variant tracks (reshaped into std.Source by the
@@ -15,11 +14,9 @@ import { ControlButton } from '../components/ControlButton'
 export const Quality: React.FC = () => {
   const playerInstance = useContext(PlayerContext)
   const { source: selectedSource, sources, setSource } = useSource(playerInstance!)
-  const auto = !!(selectedSource?.video as { __auto?: boolean } | undefined)?.__auto
-  const selectedHeight = auto ? undefined : selectedSource?.video.height
+  const auto = selectedSource?.mode === 'auto'
+  const selectedHeight = selectedSource?.mode === 'manual' ? selectedSource.video.height : undefined
   const videoSources = sources.filter(std.isVideoSource)
-  const select = (video: CombinedSource['video']) =>
-    setSource({ video, audio: video as unknown as CombinedSource['audio'] })
 
   return (
     <Menu position="top" closeOnItemClick={false}>
@@ -32,7 +29,7 @@ export const Quality: React.FC = () => {
         <Menu.Label>Quality</Menu.Label>
         <Menu.Item
           leftSection={<IconCheck size={16} style={{ opacity: Number(auto) }} />}
-          onClick={() => select(AUTO_QUALITY as unknown as CombinedSource['video'])}
+          onClick={() => setSource({ mode: 'auto' })}
         >
           Auto
         </Menu.Item>
@@ -42,7 +39,7 @@ export const Quality: React.FC = () => {
             leftSection={
               <IconCheck size={16} style={{ opacity: Number(selectedHeight === source.height) }} />
             }
-            onClick={() => select(source)}
+            onClick={() => setSource({ mode: 'manual', video: source })}
           >
             {source.height}p{source.frameRate > 30 ? Math.round(source.frameRate) : ''}
           </Menu.Item>

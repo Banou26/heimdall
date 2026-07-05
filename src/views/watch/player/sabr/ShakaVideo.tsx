@@ -22,7 +22,7 @@ const syncProps = (
   return rest
 }
 
-type ShakaVideoProps = { src: string; children?: ReactNode }
+type ShakaVideoProps = { src: string; startTime?: number; children?: ReactNode }
 
 // A Video.js media-engine provider backed by ShakaMedia (Shaka Player + the
 // googlevideo SABR adapter). Unlike <DashVideo>, `src` is a YouTube videoId -

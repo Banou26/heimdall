@@ -5,33 +5,34 @@ import { SabrStreamingAdapter } from '@libs/sabr'
 import { ShakaPlayerAdapter } from './ShakaPlayerAdapter'
 import { getSabrSource } from './innertube'
 
-// HTMLVideoElementHost isn't a public export; it's DashMedia's base class.
-// Importing DashMedia loads dashjs but never runs it (we don't `new` it).
+// HTMLVideoElementHost isn't a public export; reach it as DashMedia's base class.
 const HostBase = Object.getPrototypeOf(DashMedia) as new () => {
   target: HTMLVideoElement | null
   attach(target: HTMLVideoElement): void
   detach(): void
 }
 
-export const shakaMediaDefaultProps = { src: '' }
+export const shakaMediaDefaultProps = { src: '', startTime: undefined as number | undefined }
 
-// A Video.js v10 media engine backed by Shaka Player + the googlevideo SABR
-// adapter. Video.js owns the UI/controls (driving the <video>); Shaka owns the
-// MSE timeline + seeking; the adapter translates segment requests to SABR and
-// demuxes UMP responses (fetched through the FKN extension).
+// Video.js v10 media engine: Shaka owns the MSE timeline, the googlevideo adapter
+// translates segment requests to SABR (fetched through the FKN extension).
 export class ShakaMedia extends HostBase {
   #player?: shaka.Player
   #adapter?: SabrStreamingAdapter
   #src = ''
   #loading = false
+  #error?: Error
   #closedCaptions: std.ClosedCaption[] = []
+  startTime?: number
 
   get engine() {
     return this.#player
   }
 
-  // Structured caption tracks parsed from the player response, for the custom
-  // word-level caption display (the player UI reads these via the adapter).
+  get error() {
+    return this.#error
+  }
+
   get closedCaptions(): std.ClosedCaption[] {
     return this.#closedCaptions
   }
@@ -74,11 +75,13 @@ export class ShakaMedia extends HostBase {
     this.#adapter = undefined
     this.#player = undefined
     this.#loading = false
+    this.#error = undefined
   }
 
   #maybeLoad() {
     if (this.#loading || !this.target || !this.#src) return
     this.#loading = true
+    this.#error = undefined
     const videoEl = this.target
     const videoId = this.#src
     void (async () => {
@@ -87,24 +90,15 @@ export class ShakaMedia extends HostBase {
       this.#closedCaptions = source.closedCaptions
       const player = new shaka.Player()
       this.#player = player
-      // Keep SABR bursts modest: the server streams up to the buffering goal in a
-      // single response, and every byte is drained through the FKN relay.
-      // Prefer opus audio (what youtube's web player requests): some videos only
-      // serve opus over SABR, so picking m4a (itag 140) gets no media back.
       player.configure({
+        // Prefer opus: some videos only serve opus over SABR, so m4a (itag 140) gets no media back.
         preferredAudioCodecs: ['opus', 'mp4a.40.2', 'mp4a.40.5'],
-        // Don't fetch a resolution larger than the player: a 4K (itag 401) av01
-        // segment is 5-9 MB and takes ~1s to stream, so seeks crawl. Matching the
-        // element size (what youtube's player does) keeps segments ~1-2 MB.
+        // Matching the element size (what youtube's player does) keeps segments ~1-2 MB, so seeks stay fast.
         abr: { restrictToElementSize: true },
         streaming: {
-          // A large bufferingGoal makes GVS front-load a big burst per SABR response,
-          // which the relay must stream before the segment is usable - slow seeks.
-          // A small goal keeps each response tiny so the seek-target segment returns
-          // fast; resume on minimal buffer since refills are cheap thereafter.
+          // A large goal makes GVS front-load a big burst per SABR response, which slows seeks.
           bufferingGoal: 4,
-          // Resume playback as soon as the seek-point segment is decodable instead of
-          // accumulating buffer first (the user sees the seeked keyframe immediately).
+          // Resume as soon as the seek-point segment is decodable instead of accumulating buffer.
           rebufferingGoal: 0.2,
           bufferBehind: 30,
         },
@@ -120,9 +114,9 @@ export class ShakaMedia extends HostBase {
       adapter.setUstreamerConfig(source.ustreamerConfig)
       adapter.setServerAbrFormats(source.formats)
       adapter.onMintPoToken(source.mintPoToken)
-      adapter.onReloadPlayerResponse(async (reloadContext: unknown) => {
+      adapter.onReloadPlayerResponse(async () => {
         try {
-          const next = await getSabrSource(videoId, reloadContext)
+          const next = await getSabrSource(videoId)
           adapter.setStreamingURL(next.serverAbrStreamingUrl)
           adapter.setUstreamerConfig(next.ustreamerConfig)
           adapter.setServerAbrFormats(next.formats)
@@ -133,21 +127,17 @@ export class ShakaMedia extends HostBase {
       })
       adapter.attach(player)
 
-      await player.load(source.manifestUri)
+      await player.load(source.manifestUri, this.startTime)
     })().catch((error) => {
-      let detail = ''
-      try {
-        detail = error?.data
-          ? error.data
-              .map((d: unknown) => String((d as Error)?.stack || (d as Error)?.message || d))
-              .join(' || ')
-          : ''
-      } catch {
-        /* */
-      }
-      ;(globalThis as Record<string, unknown>).__shakaMediaError = `code=${error?.code} cat=${
-        error?.category
-      } ${String(error?.message || error)} :: ${detail}`.slice(0, 1000)
+      this.#loading = false
+      this.#error =
+        error instanceof Error
+          ? error
+          : new Error(
+              error?.code != null
+                ? `shaka error ${error.code} (category ${error.category})`
+                : String(error?.message ?? error),
+            )
       console.error('[ShakaMedia] failed to load', error)
     })
   }

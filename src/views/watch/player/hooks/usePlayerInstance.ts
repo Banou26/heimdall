@@ -9,9 +9,11 @@
 import * as std from '@std'
 import { useEffect, useState } from 'react'
 import { useMedia } from '@videojs/react'
+import { useAtomValue } from 'jotai'
 
 import type { ShakaMedia } from '../sabr/ShakaMedia'
 import { fetchSponsorBlock } from '@/parser/yt/video/sponsorblock'
+import { playerDefaultQualityAtom } from '@/settings'
 
 export enum PlayerState {
   Playing = 'playing',
@@ -20,10 +22,7 @@ export enum PlayerState {
   Error = 'error',
 }
 
-export type CombinedSource = {
-  audio: std.Source<std.SourceType.Audio | std.SourceType.AudioVideo>
-  video: std.Source<std.SourceType.Video | std.SourceType.AudioVideo>
-}
+export type QualitySelection = { mode: 'auto' } | { mode: 'manual'; video: std.Source<std.SourceType.Video> }
 
 export type PlayerInstance = {
   video: HTMLVideoElement
@@ -37,7 +36,7 @@ export type PlayerInstance = {
   state: ValueListener<PlayerState>
   seekMS: ValueListener<number | undefined>
   currentScrubTimeMS: ValueListener<number | undefined>
-  source: ValueListener<CombinedSource>
+  source: ValueListener<QualitySelection>
   sources: std.Source[]
   segments: Pick<ValueListener<std.PlayerSegments | undefined>, 'get' | 'onChange'>
   buffering: Pick<ValueListener<boolean>, 'get' | 'onChange'>
@@ -98,11 +97,6 @@ type ShakaPlayerLike = {
   removeEventListener?: (type: string, listener: () => void) => void
 }
 
-// "Auto" quality marker: a sentinel CombinedSource that re-enables shaka ABR
-// instead of pinning a variant. Quality.tsx sets it; the adapter detects it here.
-export const AUTO_QUALITY = { __auto: true } as unknown as std.Source<std.SourceType.Video>
-const isAuto = (source?: std.Source): boolean => !!(source as { __auto?: boolean } | undefined)?.__auto
-
 const toSource = (track: ShakaTrack): std.Source<std.SourceType.Video> =>
   ({
     type: std.SourceType.Video,
@@ -147,10 +141,7 @@ const createShakaPlayerInstance = ({
   }
   const sources = [...trackByHeight.values()].sort((a, b) => (b.height ?? 0) - (a.height ?? 0)).map(toSource)
   // Default to Auto (shaka ABR + restrictToElementSize); the Quality control pins a height.
-  const source = createValueListener<CombinedSource>({
-    video: AUTO_QUALITY,
-    audio: AUTO_QUALITY as unknown as CombinedSource['audio'],
-  })
+  const source = createValueListener<QualitySelection>({ mode: 'auto' })
 
   // <video> → store wiring.
   const cleanups: (() => void)[] = []
@@ -195,12 +186,11 @@ const createShakaPlayerInstance = ({
     video.playbackRate = rate
   })
   source.onChange((next) => {
-    if (isAuto(next?.video)) {
+    if (next.mode === 'auto') {
       player.configure({ abr: { enabled: true } })
       return
     }
-    const track =
-      next?.video && trackByHeight.get((next.video as std.Source<std.SourceType.Video>).height ?? -1)
+    const track = trackByHeight.get(next.video.height ?? -1)
     if (!track) return
     player.configure({ abr: { enabled: false } })
     player.selectVariantTrack(track, true)
@@ -237,9 +227,11 @@ const createShakaPlayerInstance = ({
 
 // Builds the adapter once the shaka <video> + player exist and tracks have loaded.
 // Must be called inside <Player.Provider> so useMedia() resolves the ShakaMedia.
-export const useShakaPlayerInstance = (videoId: string): PlayerInstance | undefined => {
+export const useShakaPlayerInstance = (videoId: string): { instance?: PlayerInstance; error?: Error } => {
   const media = useMedia() as ShakaMedia | null
   const [instance, setInstance] = useState<PlayerInstance | undefined>(undefined)
+  const [error, setError] = useState<Error | undefined>(undefined)
+  const defaultQuality = useAtomValue(playerDefaultQualityAtom)
 
   useEffect(() => {
     if (!media) return
@@ -253,6 +245,11 @@ export const useShakaPlayerInstance = (videoId: string): PlayerInstance | undefi
 
     const tryBuild = () => {
       if (built || cancelled) return
+      if (media.error) {
+        setError(media.error)
+        clearInterval(interval)
+        return
+      }
       const video = media.target as HTMLVideoElement | null
       const player = media.engine as unknown as ShakaPlayerLike | undefined
       if (!video || !player?.getVariantTracks) return
@@ -273,8 +270,16 @@ export const useShakaPlayerInstance = (videoId: string): PlayerInstance | undefi
       clearInterval(interval)
       built?.destroy()
       setInstance(undefined)
+      setError(undefined)
     }
   }, [media, videoId])
 
-  return instance
+  useEffect(() => {
+    if (!instance) return
+    ;(media?.engine as unknown as ShakaPlayerLike | undefined)?.configure({
+      abr: { restrictions: { maxWidth: defaultQuality } },
+    })
+  }, [media, instance, defaultQuality])
+
+  return { instance, error }
 }
