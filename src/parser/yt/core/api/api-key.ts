@@ -7,8 +7,8 @@ const STORAGE_KEY = 'apiKey'
 
 export async function fetchAPIKey() {
   const stored = await storage.get<StoredAPIKey>(STORAGE_KEY)
-  const notExpired = stored && addDays(new Date(), 2) > new Date(stored.retrievalDate)
-  const shouldRefresh = stored && addDays(new Date(), 1) < new Date(stored.retrievalDate)
+  const notExpired = stored && new Date() < addDays(new Date(stored.retrievalDate), 2)
+  const shouldRefresh = stored && new Date() > addDays(new Date(stored.retrievalDate), 1)
   if (stored?.value && notExpired) {
     if (shouldRefresh) refreshAPIKey()
     return stored.value

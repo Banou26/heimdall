@@ -1,6 +1,5 @@
-// The self-contained bgutils CJS bundle (no requires), inlined as text so it can run in
-// the youtube.com frame's MAIN world - the only realm where YouTube's BotGuard VM emits
-// signals + a minter (heimdall's own origin yields 0 signals under any environment).
+// bgutils inlined as text: it must run in the youtube.com frame's MAIN world, the only
+// realm where the BotGuard VM emits signals (heimdall's own origin yields 0 signals).
 import bgutilsBundle from '../../node_modules/bgutils-js/bundle/index.cjs?raw'
 import { buildURL, GOOG_API_KEY } from 'bgutils-js'
 
@@ -9,12 +8,8 @@ import { fetchProxy, attachFrame } from '@libs/extension'
 type Frame = Awaited<ReturnType<typeof attachFrame>>
 type Ctx = { client: { visitorData: string; clientVersion: string } }
 
-// PO Token (BotGuard / WebPO) minting. YouTube gates SABR streaming behind a
-// proof-of-origin token. The crucial detail (per FreeTube's src/botGuardScript.js):
-// the challenge MUST come from the SESSION-BOUND /youtubei/v1/att/get endpoint (carrying
-// this session's visitorData + context), NOT the generic Create endpoint - a token from
-// a generic challenge gets the ~60s preview cap. The VM snapshot + the mint run in the
-// frame; the network hops (att/get, interpreter, GenerateIT) run here through the proxy.
+// WebPO minting: the challenge MUST come from the session-bound /att/get endpoint, not
+// the generic Create endpoint, or the minted token gets the ~60s preview cap (FreeTube).
 const REQUEST_KEY = 'O43z0dpjhgX20SCx4KAo'
 const IT_HEADERS = {
   'content-type': 'application/json+protobuf',
@@ -27,9 +22,7 @@ const ATT_GET_URL = 'https://www.youtube.com/youtubei/v1/att/get?prettyPrint=fal
 
 const isCookieless = () => !!(globalThis as Record<string, unknown>).__sabrCookieless
 
-// Runs in the frame's MAIN world (concatenated, not template-interpolated, so the
-// bundle's own backticks can't break it). Wraps the CJS bundle, then exposes a tiny
-// minter API on the frame's window; state persists between evaluate() calls.
+// Concatenated, not template-interpolated, so the bundle's own backticks can't break it.
 const PAYLOAD_SETUP =
   '() => {' +
   '  const m = { exports: {} };' +
@@ -56,12 +49,12 @@ const PAYLOAD_SETUP =
   '  };' +
   '}'
 
-type Session = { frame: Frame; expiresAt: number }
+type Session = { frame: Frame; iframe: HTMLIFrameElement; expiresAt: number }
 
 let session: Session | undefined
 let pending: Promise<Session> | undefined
 
-const openFrame = async (): Promise<Frame> => {
+const openFrame = async (): Promise<{ frame: Frame; iframe: HTMLIFrameElement }> => {
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
   iframe.tabIndex = -1
@@ -78,14 +71,18 @@ const openFrame = async (): Promise<Frame> => {
   })
   document.body.appendChild(iframe)
 
-  const frame = await attachFrame({ iframe, domains: YT_DOMAINS, syncCookies: false, lockdown: false })
-  await frame.goto(YT_BOOTSTRAP_URL)
-  await frame.evaluate(PAYLOAD_SETUP)
-  return frame
+  try {
+    const frame = await attachFrame({ iframe, domains: YT_DOMAINS, syncCookies: false, lockdown: false })
+    await frame.goto(YT_BOOTSTRAP_URL)
+    await frame.evaluate(PAYLOAD_SETUP)
+    return { frame, iframe }
+  } catch (error) {
+    iframe.remove()
+    throw error
+  }
 }
 
-// Session-bound BotGuard challenge from /att/get (the interpreter is at a URL, fetched
-// separately). Both hops run in the app through the proxy; the frame can't reach network.
+// Network hops run here through the proxy; the frame can't reach the network.
 const fetchChallenge = async (context: unknown): Promise<[string, string, string]> => {
   const ctx = context as Ctx
   const res = await fetchProxy(ATT_GET_URL, {
@@ -118,33 +115,39 @@ const fetchChallenge = async (context: unknown): Promise<[string, string, string
 }
 
 const buildSession = async (context: unknown): Promise<Session> => {
-  const frame = await openFrame()
-  const challenge = await fetchChallenge(context)
-  const { botguardResponse, signals } = (await frame.evaluate(
-    '(a) => __fknYtMinter.snapshot(a)',
-    challenge,
-  )) as { botguardResponse: string; signals: number }
-  const it = (await fetchProxy(buildURL('GenerateIT', true), {
-    method: 'POST',
-    headers: IT_HEADERS,
-    credentials: 'omit',
-    body: JSON.stringify([REQUEST_KEY, botguardResponse]),
-  }).then((res) => res.json())) as [string | null, number, number | null, string]
-  if (!it[0] && !it[3]) throw new Error(`botguard: no integrity token (signals ${signals})`)
-  await frame.evaluate('(a) => __fknYtMinter.createMinter(a)', {
-    integrityToken: it[0] ?? undefined,
-    estimatedTtlSecs: it[1],
-    mintRefreshThreshold: it[2] ?? undefined,
-    websafeFallbackToken: it[3],
-  })
-  // Refresh at 80% of the integrity token's lifetime.
-  return { frame, expiresAt: performance.now() + (Number(it[1]) || 3600) * 800 }
+  const { frame, iframe } = await openFrame()
+  try {
+    const challenge = await fetchChallenge(context)
+    const { botguardResponse, signals } = (await frame.evaluate(
+      '(a) => __fknYtMinter.snapshot(a)',
+      challenge,
+    )) as { botguardResponse: string; signals: number }
+    const it = (await fetchProxy(buildURL('GenerateIT', true), {
+      method: 'POST',
+      headers: IT_HEADERS,
+      credentials: 'omit',
+      body: JSON.stringify([REQUEST_KEY, botguardResponse]),
+    }).then((res) => res.json())) as [string | null, number, number | null, string]
+    if (!it[0] && !it[3]) throw new Error(`botguard: no integrity token (signals ${signals})`)
+    await frame.evaluate('(a) => __fknYtMinter.createMinter(a)', {
+      integrityToken: it[0] ?? undefined,
+      estimatedTtlSecs: it[1],
+      mintRefreshThreshold: it[2] ?? undefined,
+      websafeFallbackToken: it[3],
+    })
+    // Refresh at 80% of the integrity token's lifetime.
+    return { frame, iframe, expiresAt: performance.now() + (Number(it[1]) || 3600) * 800 }
+  } catch (error) {
+    iframe.remove()
+    throw error
+  }
 }
 
 const getSession = (context: unknown): Promise<Session> => {
   if (session && performance.now() < session.expiresAt) return Promise.resolve(session)
   pending ??= buildSession(context)
     .then((s) => {
+      session?.iframe.remove()
       session = s
       pending = undefined
       return s

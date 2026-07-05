@@ -10,28 +10,19 @@ import { Constants, Innertube, Platform, Utils, YT } from 'youtubei.js/web'
 
 const isCookieless = () => !!(globalThis as Record<string, unknown>).__sabrCookieless
 
-// youtubei.js ships a stale WEB clientVersion; YouTube's GVS limits stale clients
-// to the ~60s preview regardless of the PO token (real youtube.com sends a current
-// version + only a ~10-byte cold-start token). Pin the live youtube.com web version.
+// youtubei.js ships a stale WEB clientVersion, which GVS caps at the ~60s preview.
 const WEB_CLIENT_VERSION = '2.20260618.05.00'
 ;(Constants as unknown as { CLIENTS: { WEB: { VERSION: string } } }).CLIENTS.WEB.VERSION = WEB_CLIENT_VERSION
 
-// youtubei.js does the InnerTube heavy lifting (player response, signature
-// deciphering, and - crucially - a SABR DASH manifest with a real segment
-// timeline via toDash({ is_sabr: true })). Its requests run through the FKN
-// extension (CORS-free). By default they carry the user's logged-in YouTube
-// session (cookies + SAPISIDHASH) so SABR streams past the ~60s anonymous grant;
-// globalThis.__sabrCookieless forces the anonymous path.
+// InnerTube requests run through the FKN extension on the user's logged-in session
+// (cookies + SAPISIDHASH); globalThis.__sabrCookieless forces the anonymous path.
 const fknFetch: typeof fetch = async (input, init) => {
   const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
   const request = input instanceof Request ? input : undefined
   const headers = new Headers(init?.headers ?? request?.headers)
   const cookieless = isCookieless()
   if (!cookieless && /(^|\.)youtube\.com$/.test(new URL(url).hostname)) {
-    // SAPISIDHASH is validated against the request's X-Origin; it must match the
-    // origin hashed in fetchSAPISID (https://www.youtube.com), or the auth silently
-    // fails and the stream falls back to the anonymous ~60s grant. The browser won't
-    // let us set Origin, so the extension forges Origin/Referer/X-Origin for us.
+    // SAPISIDHASH is validated against X-Origin; a mismatch silently degrades to the ~60s anonymous grant.
     if (!headers.has('authorization')) {
       const sapisid = await fetchSAPISID().catch(() => undefined)
       if (sapisid) headers.set('authorization', `SAPISIDHASH ${sapisid}`)
@@ -48,10 +39,7 @@ const fknFetch: typeof fetch = async (input, init) => {
   })
 }
 
-// The WEB player's server_abr_streaming_url is signature-ciphered; youtubei.js
-// unlocks it by running the sig/n functions it extracted from the player JS.
-// Route that through `new Function` (its default eval path) so the ciphered URL
-// resolves in the page context.
+// Run youtubei.js's extracted sig/n decipher functions via new Function in the page context.
 Platform.shim.eval = async (data: Types.BuildScriptResult, env: Record<string, Types.VMPrimative>) => {
   const properties: string[] = []
   if (env.n) properties.push(`n: exportedVars.nFunction("${env.n}")`)
@@ -60,11 +48,7 @@ Platform.shim.eval = async (data: Types.BuildScriptResult, env: Record<string, T
   return new Function(code)()
 }
 
-// Default (WEB) client: its SABR streaming endpoint expects a WebPO attestation
-// token bound to the videoId - exactly what bgutils/BotGuard mints. (The IOS
-// client wants a native iOS attestation, so a WebPO token there is rejected with
-// streamProtectionStatus 2 forever.) A real session visitorData (not generated
-// locally) is needed for the server to return streaming_data without a login.
+// WEB client only: the IOS client rejects WebPO tokens with streamProtectionStatus 2 forever.
 let innertubePromise: Promise<Innertube> | undefined
 const getInnertube = () => {
   if (!innertubePromise) {
@@ -74,7 +58,13 @@ const getInnertube = () => {
   return innertubePromise
 }
 
-const toBase64 = (str: string) => btoa(String.fromCharCode(...new TextEncoder().encode(str)))
+const toBase64 = (str: string) => {
+  const bytes = new TextEncoder().encode(str)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000))
+  return btoa(binary)
+}
 
 // One Client Playback Nonce per video, stable across reloads (the streaming session).
 const cpnCache = new Map<string, string>()
@@ -90,12 +80,6 @@ export type SabrSource = {
   mintPoToken: () => Promise<string>
 }
 
-// On a normal load, getBasicInfo builds the WEB /player request YouTube expects
-// (a hand-rolled actions.execute('/player') returns UNPLAYABLE cookieless). On a
-// server-requested reload (far seeks need a freshly-authorized streaming URL, or
-// SABR keeps returning streamProtectionStatus 2), the request must carry the
-// server's reloadPlaybackContext - getBasicInfo can't, so mirror its request
-// shape via actions.execute and add the reload context.
 // Extract the server-rendered ytInitialPlayerResponse JSON from a watch-page HTML
 // (brace-balanced scan, since the JSON contains nested braces and quoted strings).
 const extractInitialPlayerResponse = (html: string): unknown => {
@@ -119,11 +103,8 @@ const extractInitialPlayerResponse = (html: string): unknown => {
 }
 
 const getPlayerInfo = async (innertube: Innertube, videoId: string) => {
-  // Do what the real youtube web player does: read the FULL-TIER player response
-  // server-rendered into the watch page (both for the initial load AND on a server-
-  // requested reload). The /player API only issues a PREVIEW-TIER session (a shorter
-  // videoPlaybackUstreamerConfig) that GVS caps at ~60s. fetchProxy fetches the watch
-  // page HTML through the FKN extension; each fetch yields a fresh authorized URL.
+  // The watch page carries the FULL-TIER player response; the /player API only issues
+  // a preview-tier session GVS caps at ~60s. Each fetch yields a fresh authorized URL.
   const html = await fetchProxy(`https://www.youtube.com/watch?v=${videoId}`, {
     credentials: isCookieless() ? 'omit' : 'include',
   }).then((r) => r.text())
@@ -136,9 +117,7 @@ const getPlayerInfo = async (innertube: Innertube, videoId: string) => {
   return { info, raw: playerResponse as Record<string, never> }
 }
 
-// Register the playback session: youtube's web player POSTs /api/stats/playback with
-// the cpn after load. Without it the cpn is unregistered and GVS caps the stream at
-// the ~60s preview. The base URL comes from the player response's playbackTracking.
+// Without the /api/stats/playback POST the cpn is unregistered and GVS caps at the ~60s preview.
 const registerPlayback = (
   raw: Record<string, never>,
   cpn: string,
@@ -162,7 +141,7 @@ const registerPlayback = (
   }
 }
 
-export const getSabrSource = async (videoId: string, reloadContext?: unknown): Promise<SabrSource> => {
+export const getSabrSource = async (videoId: string): Promise<SabrSource> => {
   const innertube = await getInnertube()
 
   const { info, raw } = await getPlayerInfo(innertube, videoId)
@@ -172,11 +151,8 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
     )
 
   const sd = info.streaming_data
-  // YouTube serves several xtags variants of each audio itag (plain / DRC-normalised /
-  // auto-dubbed). The real web player lists ALL of them and lets GVS pick; the Shaka
-  // adapter instead pins ONE in selectedFormatIds, and GVS returns no media for a
-  // non-default variant - playback then errors out. Keep only the plain (no-xtags,
-  // non-dubbed) audio so the pinned format is always one GVS serves; video is untouched.
+  // The adapter pins ONE audio itag and GVS returns no media for non-default xtags
+  // variants (DRC/dubbed), so keep only the plain audio; video is untouched.
   const isPlainAudio = (f: unknown) => {
     const ff = f as { has_audio?: boolean; has_video?: boolean }
     return ff.has_audio && !ff.has_video
@@ -195,10 +171,7 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
   }
   const rawUrl = sd?.server_abr_streaming_url
   if (!rawUrl) throw new Error('sabr: no server_abr_streaming_url in player response')
-  // The server_abr_streaming_url lacks the cpn (Client Playback Nonce) + alr that
-  // youtube.com's web player appends; without cpn the server treats each request as
-  // an untracked session and caps it at the ~60s preview. The cpn must be STABLE for
-  // the whole playback (a fresh one per reload restarts the session), so cache it.
+  // Without a cpn GVS caps at the ~60s preview; it must stay STABLE across reloads, so cache it.
   let cpn = cpnCache.get(videoId)
   if (!cpn) {
     cpn = Utils.generateRandomString(16)
@@ -234,14 +207,11 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
     clientVersion: client.clientVersion,
   }
 
-  // GVS/SABR WebPO token binding (FreeTube's approach): logged-IN binds to the
-  // account's datasyncId, logged-OUT to the videoId (mintAsWebsafeString(videoId)).
-  // The same token gates the timedtext endpoint, so captions reuse this getter.
+  // WebPO binding: logged-IN binds to the datasyncId, logged-OUT to the videoId (FreeTube).
   const datasyncId = extractDatasyncId(info)
   const getPoToken = () => mintPoToken(datasyncId || videoId, innertube.session.context)
 
-  // Structured caption tracks for the custom word-level display (the SABR manifest
-  // also carries VTT, but shaka's native rendering is disabled in favour of this).
+  // Structured caption tracks for the custom word-level display (shaka's VTT rendering is off).
   let closedCaptions: std.ClosedCaption[] = []
   try {
     const captions = (raw as unknown as { captions?: Parameters<typeof processCaptions>[0] }).captions
@@ -258,14 +228,11 @@ export const getSabrSource = async (videoId: string, reloadContext?: unknown): P
     clientInfo,
     durationMs: Number(info.basic_info?.duration ?? 0) * 1000,
     closedCaptions,
-    // Full BotGuard integrity WebPO token from a session-bound /att/get challenge
-    // (FreeTube's approach) - satisfies GVS attestation past the cold-start preview.
     mintPoToken: getPoToken,
   }
 }
 
-// The account session ID GVS binds a logged-in WebPO token to. youtubei.js doesn't
-// surface it, so dig it out of the raw player response's responseContext.
+// youtubei.js doesn't surface the datasyncId; dig it out of the raw responseContext.
 const extractDatasyncId = (info: { page?: unknown[] }): string => {
   for (const page of info.page ?? []) {
     const rc =
