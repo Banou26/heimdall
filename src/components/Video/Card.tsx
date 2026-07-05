@@ -1,8 +1,6 @@
 import type React from 'react'
+import type * as std from '@std'
 import { memo } from 'react'
-
-import * as std from '@std'
-import yt from '@yt'
 
 import { ChannelIcon } from '../Channel/Link'
 import { VideoSubLine, getVideoUrl } from './Shared'
@@ -11,60 +9,30 @@ import { Author } from '../Author'
 
 import { Card, Skeleton, Stack, Text } from '@mantine/core'
 import { Link } from 'wouter'
-import { useDelayedEvent } from '@/hooks/useDelayed'
 import Grid from '../lese/components/Grid'
 
 export const VideoCard: React.FC<{ video: std.Video; size?: 'sm' | 'md' }> = memo(
-  ({ video, size = 'md' }) => {
-    // prefecthing the player
-    const getPlayer = useDelayedEvent(
-      () =>
-        yt.getPlayer(video.id).then((player) => {
-          const videoSource = player.sources
-            .filter(std.isVideoSource)
-            .find((source) => source.mimetype?.includes('vp9'))!
-          const audioSource = player.sources
-            .filter(std.isAudioSource)!
-            .find((source) => source.mimetype?.includes('opus'))!
-
-          const videoPreconnect = document.createElement('link')
-          videoPreconnect.rel = 'preload'
-          videoPreconnect.as = 'video'
-          videoPreconnect.href = videoSource.url
-          document.head.appendChild(videoPreconnect)
-
-          const audioPreconnect = document.createElement('link')
-          audioPreconnect.rel = 'preload'
-          audioPreconnect.as = 'audio'
-          audioPreconnect.href = audioSource.url
-          document.head.appendChild(audioPreconnect)
-        }),
-      400,
-    )
-    return (
-      <Card
-        component={Link}
-        href={getVideoUrl(video)}
-        styles={{ root: { background: 'none', overflow: 'visible' } }}
-        onMouseEnter={getPlayer.trigger}
-        onMouseLeave={getPlayer.cancel}
-      >
-        <Card.Section>
-          <VideoThumbnail {...video} />
-        </Card.Section>
-        <Grid columns="auto 1fr" gap="1em" style={{ marginTop: '0.75em' }}>
-          {video.author?.avatar && <ChannelIcon channel={video.author} />}
-          <Stack gap="4px" style={{ overflow: 'hidden' }}>
-            <Text fw="bold" size="lg" lineClamp={2}>
-              {video.title}
-            </Text>
-            {video.author && <Author author={video.author!} size={size} />}
-            <VideoSubLine video={video} size={size} />
-          </Stack>
-        </Grid>
-      </Card>
-    )
-  },
+  ({ video, size = 'md' }) => (
+    <Card
+      component={Link}
+      href={getVideoUrl(video)}
+      styles={{ root: { background: 'none', overflow: 'visible' } }}
+    >
+      <Card.Section>
+        <VideoThumbnail {...video} />
+      </Card.Section>
+      <Grid columns="auto 1fr" gap="1em" style={{ marginTop: '0.75em' }}>
+        {video.author?.avatar && <ChannelIcon channel={video.author} />}
+        <Stack gap="4px" style={{ overflow: 'hidden' }}>
+          <Text fw="bold" size="lg" lineClamp={2}>
+            {video.title}
+          </Text>
+          {video.author && <Author author={video.author!} size={size} />}
+          <VideoSubLine video={video} size={size} />
+        </Stack>
+      </Grid>
+    </Card>
+  ),
 )
 
 export const VideoCardSkeleton: React.FC = () => (

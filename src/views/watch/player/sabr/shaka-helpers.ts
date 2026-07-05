@@ -1,37 +1,5 @@
 import shaka from 'shaka-player'
 
-export function checkExtension(): boolean {
-  return 'ytcBridge' in window && (window as any).ytcBridge.installed
-}
-
-export function getInjectedProxyFunction() {
-  return (window as any).proxyFetch
-}
-
-export async function fetchFunction(input: string | Request | URL, init?: RequestInit): Promise<Response> {
-  const url = input instanceof URL ? input : new URL(typeof input === 'string' ? input : input.url)
-  const headers = new Headers(init?.headers ?? (input instanceof Request ? input.headers : undefined))
-  const requestInit = { ...init, headers }
-
-  if (url.pathname.includes('v1/player')) {
-    url.searchParams.set(
-      '$fields',
-      'playerConfig,storyboards,captions,playabilityStatus,streamingData,responseContext.mainAppWebResponseContext.datasyncId,videoDetails.isLive,videoDetails.isLiveContent,videoDetails.title,videoDetails.author,videoDetails.thumbnail',
-    )
-  }
-
-  const proxyFetch = getInjectedProxyFunction()
-
-  if (proxyFetch) {
-    if (url.pathname.includes('initplayback')) {
-      return fetch(url, requestInit)
-    }
-    return proxyFetch(url.toString(), requestInit)
-  }
-
-  throw new Error('Proxy fetch function not found.')
-}
-
 export function asMap<K, V>(object: Record<string, V>): Map<K, V> {
   const map = new Map<K, V>()
   for (const key of Object.keys(object)) {
